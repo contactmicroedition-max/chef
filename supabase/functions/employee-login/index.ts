@@ -30,14 +30,6 @@ function getProjectKey(currentName: string, legacyName: string): string | null {
   return Deno.env.get(legacyName) ?? null;
 }
 
-function normalizePhone(value: string): string {
-  let phone = value.replace(/\D/g, "");
-  if (phone.startsWith("00216")) phone = phone.slice(5);
-  else if (phone.startsWith("00")) phone = phone.slice(2);
-  if (phone.startsWith("216") && phone.length > 8) phone = phone.slice(3);
-  return phone;
-}
-
 Deno.serve(async (request: Request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -71,10 +63,10 @@ Deno.serve(async (request: Request) => {
   }
 
   const input = body as Record<string, unknown>;
-  const phone = typeof input.phone === "string" ? normalizePhone(input.phone) : "";
+  const loginId = typeof input.login_id === "string" ? input.login_id.trim() : "";
   const password = typeof input.password === "string" ? input.password : "";
-  if (!/^\d{8,15}$/.test(phone) || !password) {
-    return respond(400, { error: "Enter a valid phone ID and password." });
+  if (!/^\d{8}$/.test(loginId) || !password) {
+    return respond(400, { error: "Enter an 8-digit ID and password." });
   }
 
   const adminClient = createClient(supabaseUrl, secretKey, {
@@ -84,54 +76,27 @@ Deno.serve(async (request: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // Match pure phone or phone with prefix
-  const candidatePhones = [phone, `216${phone}`, `+216${phone}`];
-  const { data: employees, error: employeeError } = await adminClient
-    .from("employees")
-    .select("id, phone")
-    .in("phone", candidatePhones);
-
-  if (employeeError) {
-    console.error("Could not find employee by phone ID:", employeeError);
-    return respond(500, { error: "Could not look up the employee account." });
-  }
-  if (!employees || employees.length === 0) {
-    return respond(401, { error: "Phone ID or password is incorrect." });
-  }
-
-  const employeeIds = employees.map((employee) => employee.id as string);
-  const { data: memberships, error: membershipError } = await adminClient
-    .from("organisation_members")
+  const { data: account, error: accountError } = await adminClient
+    .from("account_login_ids")
     .select("user_id")
-    .in("employee_id", employeeIds)
-    .eq("role", "employee");
+    .eq("login_id", loginId)
+    .maybeSingle();
 
-  if (membershipError) {
-    console.error("Could not resolve employee login account:", membershipError);
-    return respond(500, { error: "Could not look up the employee account." });
+  if (accountError) {
+    console.error("Could not resolve login ID:", accountError);
+    return respond(500, { error: "Could not look up the account." });
   }
-  const userIds = [...new Set((memberships ?? []).map(
-    (membership) => membership.user_id as string,
-  ))];
-
-  if (userIds.length !== 1) {
-    return respond(
-      userIds.length === 0 ? 401 : 409,
-      {
-        error: userIds.length === 0
-          ? "Phone ID or password is incorrect."
-          : "This phone ID is linked to more than one employee login. Ask the owner to correct the employee records.",
-      },
-    );
+  if (!account) {
+    return respond(401, { error: "ID or password is incorrect." });
   }
 
-  const userId = userIds[0];
+  const userId = account.user_id as string;
   const { data: userResult, error: userError } = await adminClient.auth.admin
     .getUserById(userId);
 
   if (userError || !userResult.user) {
-    console.error("Could not load employee auth account:", userError);
-    return respond(500, { error: "Could not load the employee login." });
+    console.error("Could not load account:", userError);
+    return respond(500, { error: "Could not load the account login." });
   }
 
   // Ensure email is confirmed so password sign-in never fails on verification
@@ -139,7 +104,11 @@ Deno.serve(async (request: Request) => {
     await adminClient.auth.admin.updateUserById(userId, { email_confirm: true });
   }
 
-  const loginEmail = userResult.user.email ?? `employee-${phone}@employee-login.invalid`;
+  const loginEmail = userResult.user.email;
+  if (!loginEmail) {
+    console.error("Account has no internal Auth alias:", userId);
+    return respond(500, { error: "Could not load the account login." });
+  }
 
   const { data: authData, error: authError } = await loginClient.auth
     .signInWithPassword({ email: loginEmail, password });
@@ -157,7 +126,7 @@ Deno.serve(async (request: Request) => {
         });
       }
     }
-    return respond(401, { error: "Phone ID or password is incorrect." });
+    return respond(401, { error: "ID or password is incorrect." });
   }
 
   return respond(200, {

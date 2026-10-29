@@ -24,7 +24,7 @@ class AppState {
     this.themeMode = ThemeMode.system,
     this.selectedOrganisationId,
     this.currentUserId,
-    this.currentUserEmail,
+    this.currentUserLoginId,
     this.currentRole,
     this.currentEmployeeId,
     this.errorMessage,
@@ -41,7 +41,7 @@ class AppState {
   final ThemeMode themeMode;
   final String? selectedOrganisationId;
   final String? currentUserId;
-  final String? currentUserEmail;
+  final String? currentUserLoginId;
   final EmployeeRole? currentRole;
   final String? currentEmployeeId;
   final String? errorMessage;
@@ -65,7 +65,7 @@ class AppState {
     ThemeMode? themeMode,
     String? selectedOrganisationId,
     String? currentUserId,
-    String? currentUserEmail,
+    String? currentUserLoginId,
     EmployeeRole? currentRole,
     String? currentEmployeeId,
     String? errorMessage,
@@ -87,9 +87,9 @@ class AppState {
           ? null
           : selectedOrganisationId ?? this.selectedOrganisationId,
       currentUserId: clearUser ? null : currentUserId ?? this.currentUserId,
-      currentUserEmail: clearUser
+      currentUserLoginId: clearUser
           ? null
-          : currentUserEmail ?? this.currentUserEmail,
+          : currentUserLoginId ?? this.currentUserLoginId,
       currentRole: clearUser ? null : currentRole ?? this.currentRole,
       currentEmployeeId: clearUser
           ? null
@@ -111,10 +111,7 @@ class AppStateNotifier extends Notifier<AppState> {
         final event = data.event;
         final user = data.session?.user;
         if (event == AuthChangeEvent.signedOut || user == null) {
-          state = AppState(
-            locale: state.locale,
-            themeMode: state.themeMode,
-          );
+          state = AppState(locale: state.locale, themeMode: state.themeMode);
         } else if (state.currentUserId != user.id) {
           unawaited(_loadUser(user));
         }
@@ -135,31 +132,33 @@ class AppStateNotifier extends Notifier<AppState> {
 
   // ─── SIGN IN ────────────────────────────────────────────────────
 
-  /// Owner signs in with email, employee signs in with their ID (digits).
+  /// Every account signs in with its 8-digit ID and password.
   Future<void> signIn(String identifier, String password) async {
     final client = _requireSupabase();
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final trimmed = identifier.trim();
-      final isEmail = trimmed.contains('@');
-      AuthResponse response;
-
-      if (isEmail) {
-        // Owner / manager email login
-        response = await client.auth.signInWithPassword(
-          email: trimmed,
-          password: password,
-        );
-      } else {
-        // Employee login: the ID is used to build a fake email
-        final empId = cleanEmployeeId(trimmed);
-        final email = employeeLoginEmail(empId);
-        response = await client.auth.signInWithPassword(
-          email: email,
-          password: password,
-        );
+      final loginId = cleanAccountId(trimmed);
+      final aliases = [
+        accountLoginEmail(loginId),
+        'emp-$loginId@chef.local',
+        'employee-$loginId@employee-login.invalid',
+      ];
+      AuthResponse? response;
+      AuthException? lastAuthError;
+      for (final alias in aliases) {
+        try {
+          response = await client.auth.signInWithPassword(
+            email: alias,
+            password: password,
+          );
+          break;
+        } on AuthException catch (error) {
+          lastAuthError = error;
+        }
       }
 
+      if (response == null) throw lastAuthError!;
       final user = response.user;
       if (user == null) {
         throw const AuthException('Authentication returned no user.');
@@ -194,44 +193,36 @@ class AppStateNotifier extends Notifier<AppState> {
 
   // ─── REGISTER ───────────────────────────────────────────────────
 
-  Future<AuthResponse> register({
+  Future<void> register({
     required String name,
-    required String email,
+    required String loginId,
+    required String organisationName,
     required String password,
   }) async {
     final client = _requireSupabase();
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final response = await client.auth.signUp(
-        email: email.trim(),
-        password: password,
-        data: {'full_name': name.trim()},
+      final validLoginId = cleanAccountId(loginId);
+      await client.rpc(
+        'create_owner_account',
+        params: {
+          'p_name': name.trim(),
+          'p_login_id': validLoginId,
+          'p_password': password,
+          'p_organisation_name': organisationName.trim(),
+        },
       );
-      if (response.user == null) {
-        throw const AuthException('Registration returned no user.');
+      final response = await client.auth.signInWithPassword(
+        email: accountLoginEmail(validLoginId),
+        password: password,
+      );
+      final user = response.user;
+      if (user == null) {
+        throw const AuthException(
+          'Account created but sign-in returned no user.',
+        );
       }
-      if (response.session != null) {
-        await _loadUser(response.user!);
-      } else {
-        // Auto-confirm trigger may have fired — try signing in immediately
-        try {
-          final loginRes = await client.auth.signInWithPassword(
-            email: email.trim(),
-            password: password,
-          );
-          if (loginRes.user != null) {
-            await _loadUser(loginRes.user!);
-            return loginRes;
-          }
-        } catch (_) {
-          state = state.copyWith(
-            isLoading: false,
-            errorMessage:
-                'Account created. Disable "Confirm email" in Supabase Auth settings, or run migration 007.',
-          );
-        }
-      }
-      return response;
+      await _loadUser(user);
     } on AuthException catch (error) {
       state = state.copyWith(isLoading: false, errorMessage: error.message);
       rethrow;
@@ -239,11 +230,6 @@ class AppStateNotifier extends Notifier<AppState> {
       state = state.copyWith(isLoading: false, errorMessage: error.toString());
       rethrow;
     }
-  }
-
-  Future<void> resetPassword(String email) async {
-    final client = _requireSupabase();
-    await client.auth.resetPasswordForEmail(email.trim());
   }
 
   Future<void> signOut() async {
@@ -317,7 +303,7 @@ class AppStateNotifier extends Notifier<AppState> {
         'Only the organisation owner can create employee accounts.',
       );
     }
-    final id = cleanEmployeeId(empId);
+    final id = cleanAccountId(empId);
 
     // Call PostgreSQL RPC — stores ID as-is, no phone logic
     try {
@@ -326,7 +312,7 @@ class AppStateNotifier extends Notifier<AppState> {
         params: {
           'p_organisation_id': organisationId,
           'p_name': name.trim(),
-          'p_phone': id,
+          'p_login_id': id,
           'p_job_title': jobTitle.trim(),
           'p_pay_type': payType.name,
           'p_salary_amount': salaryAmount,
@@ -335,9 +321,7 @@ class AppStateNotifier extends Notifier<AppState> {
       );
     } on PostgrestException catch (e) {
       if (e.code == '42883' || e.message.contains('does not exist')) {
-        throw StateError(
-          'Run migration 007 in Supabase SQL Editor first.',
-        );
+        throw StateError('Run migration 008 in Supabase SQL Editor first.');
       }
       rethrow;
     }
@@ -410,7 +394,7 @@ class AppStateNotifier extends Notifier<AppState> {
   // ─── ROLE ASSIGNMENT ────────────────────────────────────────────
 
   Future<void> assignOrganisationRole({
-    required String email,
+    required String loginId,
     required EmployeeRole role,
     String? employeeId,
   }) async {
@@ -426,7 +410,7 @@ class AppStateNotifier extends Notifier<AppState> {
       'add_organisation_member',
       params: {
         'p_organisation_id': organisationId,
-        'p_email': email.trim(),
+        'p_login_id': cleanAccountId(loginId),
         'p_role': role.name,
         'p_employee_id': role == EmployeeRole.employee ? employeeId : null,
       },
@@ -473,7 +457,7 @@ class AppStateNotifier extends Notifier<AppState> {
       isLoading: true,
       isAuthenticated: true,
       currentUserId: user.id,
-      currentUserEmail: user.email,
+      currentUserLoginId: _loginIdForUser(user),
       locale: state.locale,
       themeMode: state.themeMode,
     );
@@ -525,7 +509,7 @@ class AppStateNotifier extends Notifier<AppState> {
           isAuthenticated: true,
           isLoading: false,
           currentUserId: user.id,
-          currentUserEmail: user.email,
+          currentUserLoginId: _loginIdForUser(user),
           clearOrganisation: true,
           currentRole: null,
           currentEmployeeId: null,
@@ -598,7 +582,7 @@ class AppStateNotifier extends Notifier<AppState> {
         isAuthenticated: true,
         isLoading: false,
         currentUserId: user.id,
-        currentUserEmail: user.email,
+        currentUserLoginId: _loginIdForUser(user),
         selectedOrganisationId: selectedId,
         currentRole: role,
         currentEmployeeId: employeeId,
@@ -645,7 +629,6 @@ class AppStateNotifier extends Notifier<AppState> {
       id: row['id'] as String,
       organisationId: row['organisation_id'] as String,
       name: row['full_name'] as String,
-      email: row['email'] as String?,
       jobTitle: row['job_title'] as String,
       hourlyRate: (row['hourly_rate'] as num?)?.toDouble() ?? 0,
       payType: row['pay_type'] == 'monthly'
@@ -656,9 +639,15 @@ class AppStateNotifier extends Notifier<AppState> {
       employmentStatus: _parseEmploymentStatus(
         row['employment_status'] as String? ?? 'active',
       ),
-      phone: row['phone'] as String?,
+      loginId: row['login_id'] as String?,
       hireDate: DateTime.tryParse(row['hire_date'] as String? ?? ''),
     );
+  }
+
+  String? _loginIdForUser(User user) {
+    final metadata = user.userMetadata;
+    final loginId = metadata == null ? null : metadata['login_id'];
+    return loginId is String ? loginId : loginIdFromAuthEmail(user.email);
   }
 
   AttendanceRecord _attendanceFromRow(Map<String, dynamic> row) {

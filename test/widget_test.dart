@@ -6,19 +6,16 @@ import 'package:zone/core/models/employee.dart';
 import 'package:zone/core/utils/formatters.dart';
 
 void main() {
-  test('employee ID is stored exactly as typed (no prefix logic)', () {
-    expect(cleanEmployeeId('95125268'), '95125268');
-    expect(cleanEmployeeId('  95125268  '), '95125268');
-    expect(cleanEmployeeId('1234'), '1234');
-    expect(
-      () => cleanEmployeeId('ab'),
-      throwsA(isA<FormatException>()),
-    );
+  test('account IDs must contain exactly 8 digits', () {
+    expect(cleanAccountId('95125268'), '95125268');
+    expect(cleanAccountId('  95125268  '), '95125268');
+    expect(() => cleanAccountId('1234'), throwsA(isA<FormatException>()));
+    expect(() => cleanAccountId('12a45678'), throwsA(isA<FormatException>()));
   });
 
-  test('login email is built from the employee ID', () {
-    expect(employeeLoginEmail('95125268'), 'emp-95125268@chef.local');
-    expect(employeeLoginEmail('1234'), 'emp-1234@chef.local');
+  test('Supabase login alias remains internal to the app', () {
+    expect(accountLoginEmail('95125268'), 'id-95125268@chef.local');
+    expect(loginIdFromAuthEmail('id-95125268@chef.local'), '95125268');
   });
 
   test('monthly salary is independent of recorded hours', () {
@@ -87,7 +84,7 @@ void main() {
     await tester.pump();
 
     // Validation messages should appear
-    expect(find.text('Enter your email or employee ID'), findsOneWidget);
+    expect(find.text('Enter an 8-digit ID.'), findsOneWidget);
     expect(find.text('Enter your password'), findsOneWidget);
   });
 }

@@ -166,9 +166,9 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen> {
                         .selectOrganisation(organisation.id);
                   } catch (error) {
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(error.toString())),
-                      );
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text(error.toString())));
                     }
                   }
                 },
@@ -229,24 +229,27 @@ class DashboardScreen extends ConsumerWidget {
       (r) => r.date.year == now.year && r.date.month == now.month,
     );
     final totalHours = thisMonthAttendance.fold<double>(
-      0, (sum, record) => sum + record.hours,
+      0,
+      (sum, record) => sum + record.hours,
     );
-    final openShifts = state.attendance
-        .where((r) => r.clockOut == null)
-        .length;
+    final openShifts = state.attendance.where((r) => r.clockOut == null).length;
 
     // This month's advances
     final thisMonthAdvances = state.advances
-        .where((a) =>
-            a.requestedAt.toLocal().year == now.year &&
-            a.requestedAt.toLocal().month == now.month)
+        .where(
+          (a) =>
+              a.requestedAt.toLocal().year == now.year &&
+              a.requestedAt.toLocal().month == now.month,
+        )
         .fold<double>(0, (sum, a) => sum + a.amount);
 
     // This month's payments
     final thisMonthPayments = state.payments
-        .where((p) =>
-            p.paidAt.toLocal().year == now.year &&
-            p.paidAt.toLocal().month == now.month)
+        .where(
+          (p) =>
+              p.paidAt.toLocal().year == now.year &&
+              p.paidAt.toLocal().month == now.month,
+        )
         .fold<double>(0, (sum, p) => sum + p.amount);
 
     return ListView(
@@ -307,8 +310,10 @@ class DashboardScreen extends ConsumerWidget {
               padding: const EdgeInsets.all(12),
               child: Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded,
-                      color: Theme.of(context).colorScheme.onErrorContainer),
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -382,7 +387,7 @@ class WorkerPanelScreen extends ConsumerWidget {
           style: Theme.of(context).textTheme.headlineSmall,
         ),
         const SizedBox(height: 6),
-        Text(employee?.name ?? state.currentUserEmail ?? 'Employee'),
+        Text(employee?.name ?? 'Employee'),
         const SizedBox(height: 16),
         if (employee == null)
           const Card(
@@ -588,16 +593,16 @@ class _AddEmployeeDialogState extends ConsumerState<AddEmployeeDialog> {
                 controller: _empId,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: 'Employee ID (e.g. phone number)',
+                  labelText: 'Employee ID (8 digits)',
                   hintText: '95125268',
-                  helperText: 'This ID is used to sign in. Stored exactly as you type it.',
+                  helperText: 'This ID is used to sign in.',
                 ),
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
                     return 'Enter an employee ID';
                   }
                   try {
-                    cleanEmployeeId(value);
+                    cleanAccountId(value);
                     return null;
                   } on FormatException catch (error) {
                     return error.message;
@@ -702,13 +707,13 @@ class AssignRoleDialog extends ConsumerStatefulWidget {
 
 class _AssignRoleDialogState extends ConsumerState<AssignRoleDialog> {
   final _formKey = GlobalKey<FormState>();
-  final _email = TextEditingController();
+  final _loginId = TextEditingController();
   String? _errorMessage;
   bool _saving = false;
 
   @override
   void dispose() {
-    _email.dispose();
+    _loginId.dispose();
     super.dispose();
   }
 
@@ -722,7 +727,7 @@ class _AssignRoleDialogState extends ConsumerState<AssignRoleDialog> {
       await ref
           .read(appStateProvider.notifier)
           .assignOrganisationRole(
-            email: _email.text,
+            loginId: _loginId.text,
             role: EmployeeRole.manager,
           );
       if (mounted) Navigator.pop(context);
@@ -743,15 +748,17 @@ class _AssignRoleDialogState extends ConsumerState<AssignRoleDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             _dialogField(
-              _email,
-              'Registered account email',
-              keyboardType: TextInputType.emailAddress,
-              validator: (value) =>
-                  value == null ||
-                      !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
-                          .hasMatch(value.trim())
-                  ? 'Enter the account email'
-                  : null,
+              _loginId,
+              'Account ID (8 digits)',
+              keyboardType: TextInputType.number,
+              validator: (value) {
+                try {
+                  cleanAccountId(value ?? '');
+                  return null;
+                } on FormatException catch (error) {
+                  return error.message;
+                }
+              },
             ),
             if (_errorMessage != null)
               Text(
@@ -817,7 +824,9 @@ class EmployeeCard extends StatelessWidget {
               ),
             ),
             title: Text(employee.name),
-            subtitle: Text('${employee.jobTitle} • ${employee.phone ?? ""}'),
+            subtitle: Text(
+              '${employee.jobTitle} • ID ${employee.loginId ?? ""}',
+            ),
             trailing: Chip(label: Text(employee.employmentStatus.name)),
           ),
           Align(
@@ -828,8 +837,7 @@ class EmployeeCard extends StatelessWidget {
                 onPressed: employee.employmentStatus == EmploymentStatus.active
                     ? () => showDialog<void>(
                         context: context,
-                        builder: (_) =>
-                            GiveAdvanceDialog(employee: employee),
+                        builder: (_) => GiveAdvanceDialog(employee: employee),
                       )
                     : null,
                 icon: const Icon(Icons.payments_outlined),
@@ -986,9 +994,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
 
     // Filter attendance by role
     final records = state.currentRole == EmployeeRole.employee
-        ? state.attendance
-            .where((r) => r.employeeId == employeeId)
-            .toList()
+        ? state.attendance.where((r) => r.employeeId == employeeId).toList()
         : state.attendance;
 
     return ListView(
@@ -1069,10 +1075,7 @@ class AttendanceCard extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 2),
-            Text(
-              record.status,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            Text(record.status, style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
       ),
@@ -1116,21 +1119,26 @@ class EmployeeSalariesScreen extends ConsumerWidget {
           );
 
           final currentMonthAdvances = state.advances
-              .where((a) =>
-                  a.employeeId == employee.id &&
-                  a.requestedAt.toLocal().year == now.year &&
-                  a.requestedAt.toLocal().month == now.month)
+              .where(
+                (a) =>
+                    a.employeeId == employee.id &&
+                    a.requestedAt.toLocal().year == now.year &&
+                    a.requestedAt.toLocal().month == now.month,
+              )
               .fold<double>(0, (sum, a) => sum + a.amount);
 
           final currentMonthPayments = state.payments
-              .where((p) =>
-                  p.employeeId == employee.id &&
-                  p.paidAt.toLocal().year == now.year &&
-                  p.paidAt.toLocal().month == now.month)
+              .where(
+                (p) =>
+                    p.employeeId == employee.id &&
+                    p.paidAt.toLocal().year == now.year &&
+                    p.paidAt.toLocal().month == now.month,
+              )
               .fold<double>(0, (sum, p) => sum + p.amount);
 
           final earned = employee.salaryForHours(hours);
-          final remaining = earned - currentMonthAdvances - currentMonthPayments;
+          final remaining =
+              earned - currentMonthAdvances - currentMonthPayments;
 
           final employeeAdvances =
               state.advances
@@ -1168,7 +1176,9 @@ class EmployeeSalariesScreen extends ConsumerWidget {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.account_balance_wallet_rounded),
-                  title: Text('Earned: ${formatCurrency(earned, currency: currency)}'),
+                  title: Text(
+                    'Earned: ${formatCurrency(earned, currency: currency)}',
+                  ),
                   subtitle: Text(
                     'Advances: ${formatCurrency(currentMonthAdvances, currency: currency)} • '
                     'Paid: ${formatCurrency(currentMonthPayments, currency: currency)}',
@@ -1245,7 +1255,7 @@ class SettingsScreen extends ConsumerWidget {
             children: [
               ListTile(
                 leading: const Icon(Icons.person_rounded),
-                title: Text(state.currentUserEmail ?? 'User'),
+                title: Text('ID ${state.currentUserLoginId ?? '—'}'),
                 subtitle: Text('Role: ${state.currentRole?.name ?? 'member'}'),
               ),
               const Divider(height: 1),
@@ -1340,15 +1350,11 @@ class _MetricCard extends StatelessWidget {
           children: [
             Icon(icon, color: Theme.of(context).colorScheme.primary),
             const Spacer(),
-            Text(
-              title,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            Text(title, style: Theme.of(context).textTheme.bodySmall),
             Text(
               value,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
               overflow: TextOverflow.ellipsis,
             ),
           ],

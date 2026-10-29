@@ -87,12 +87,9 @@ Deno.serve(async (request: Request) => {
 
   const organisationId = body.organisation_id;
   const name = typeof body.name === "string" ? body.name.trim() : "";
-  let phone = typeof body.phone === "string"
-    ? body.phone.trim().replace(/\D/g, "")
+  const loginId = typeof body.login_id === "string"
+    ? body.login_id.trim()
     : "";
-  if (phone.startsWith("00216")) phone = phone.slice(5);
-  else if (phone.startsWith("00")) phone = phone.slice(2);
-  if (phone.startsWith("216") && phone.length > 8) phone = phone.slice(3);
 
   const jobTitle = typeof body.job_title === "string"
     ? body.job_title.trim()
@@ -104,16 +101,16 @@ Deno.serve(async (request: Request) => {
   if (
     typeof organisationId !== "string" ||
     !name ||
-    !/^\d{8,15}$/.test(phone) ||
+    !/^\d{8}$/.test(loginId) ||
     !jobTitle ||
     (payType !== "hourly" && payType !== "monthly") ||
     !Number.isFinite(salaryAmount) ||
     salaryAmount <= 0 ||
-    password.length < 8
+    password.length < 6
   ) {
     return respond(400, {
       error:
-        "Provide a valid organisation, name, phone with 8 to 15 digits, job title, hourly or monthly pay type, positive salary amount, and password of at least 8 characters.",
+        "Provide an organisation, name, 8-digit ID, job title, valid pay details, and a password of at least 6 characters.",
     });
   }
 
@@ -133,13 +130,13 @@ Deno.serve(async (request: Request) => {
   }
 
   // Create auth user with email_confirm: true so NO verification is ever needed!
-  const loginEmail = `employee-${phone}@employee-login.invalid`;
+  const loginEmail = `id-${loginId}@chef.local`;
   const { data: authData, error: authError } = await adminClient.auth.admin
     .createUser({
       email: loginEmail,
       password,
       email_confirm: true,
-      user_metadata: { full_name: name, phone },
+      user_metadata: { full_name: name, login_id: loginId },
     });
 
   if (authError || !authData.user) {
@@ -155,8 +152,7 @@ Deno.serve(async (request: Request) => {
       .insert({
         organisation_id: organisationId,
         full_name: name,
-        email: loginEmail,
-        phone: phone, // Saved as pure digits, e.g. 95125268 (NO +216!)
+        login_id: loginId,
         job_title: jobTitle,
         hourly_rate: payType === "hourly" ? salaryAmount : 0,
         pay_type: payType,
@@ -171,6 +167,11 @@ Deno.serve(async (request: Request) => {
     }
     employeeId = employee.id;
 
+    const { error: accountIdError } = await adminClient
+      .from("account_login_ids")
+      .insert({ login_id: loginId, user_id: authData.user.id });
+    if (accountIdError) throw accountIdError;
+
     const { error: linkError } = await adminClient
       .from("organisation_members")
       .insert({
@@ -181,9 +182,14 @@ Deno.serve(async (request: Request) => {
       });
 
     if (linkError) throw linkError;
-    return respond(201, { employee_id: employeeId, phone });
+    return respond(201, { employee_id: employeeId, login_id: loginId });
   } catch (error) {
     const cleanupErrors: string[] = [];
+    const { error: deleteLoginIdError } = await adminClient
+      .from("account_login_ids")
+      .delete()
+      .eq("user_id", authData.user.id);
+    if (deleteLoginIdError) cleanupErrors.push(deleteLoginIdError.message);
     if (employeeId) {
       const { error: deleteEmployeeError } = await adminClient
         .from("employees")

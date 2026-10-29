@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:zone/core/utils/formatters.dart';
 import 'package:zone/providers/app_state.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -56,16 +57,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   const SizedBox(height: 24),
                   TextFormField(
                     controller: _identifierController,
-                    keyboardType: TextInputType.text,
+                    keyboardType: TextInputType.number,
                     autofillHints: const [AutofillHints.username],
                     decoration: const InputDecoration(
-                      labelText: 'Email or Employee ID',
-                      hintText: 'owner@email.com or 95125268',
+                      labelText: '8-digit ID',
+                      hintText: '95125268',
                       prefixIcon: Icon(Icons.person_outline),
                     ),
-                    validator: (value) => value == null || value.trim().isEmpty
-                        ? 'Enter your email or employee ID'
-                        : null,
+                    validator: (value) {
+                      try {
+                        cleanAccountId(value ?? '');
+                        return null;
+                      } on FormatException catch (error) {
+                        return error.message;
+                      }
+                    },
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
@@ -81,14 +87,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         : null,
                     onFieldSubmitted: (_) => _signIn(),
                   ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () => context.go('/forgot-password'),
-                      child: const Text('Forgot password?'),
-                    ),
-                  ),
                   if (appState.errorMessage != null) ...[
                     const SizedBox(height: 8),
                     Card(
@@ -99,7 +97,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           appState.errorMessage!,
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: Theme.of(context).colorScheme.onErrorContainer,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onErrorContainer,
                           ),
                         ),
                       ),
@@ -148,7 +148,8 @@ class RegisterScreen extends ConsumerStatefulWidget {
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _nameController = TextEditingController();
-  final _emailController = TextEditingController();
+  final _loginIdController = TextEditingController();
+  final _organisationController = TextEditingController();
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   String? _message;
@@ -156,7 +157,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   @override
   void dispose() {
     _nameController.dispose();
-    _emailController.dispose();
+    _loginIdController.dispose();
+    _organisationController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -165,21 +167,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _message = null);
     try {
-      final response = await ref
+      await ref
           .read(appStateProvider.notifier)
           .register(
             name: _nameController.text,
-            email: _emailController.text,
+            loginId: _loginIdController.text,
+            organisationName: _organisationController.text,
             password: _passwordController.text,
           );
-      if (!mounted) return;
-      if (response.session == null) {
-        setState(() {
-          _message = 'Check your email to confirm the account, then sign in.';
-        });
-      }
-      // If session exists, _loadUser will set isAuthenticated=true
-      // and the router redirect will take the user to /org-setup or /home.
     } catch (_) {
       if (mounted) {
         setState(() => _message = ref.read(appStateProvider).errorMessage);
@@ -213,17 +208,32 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
+                  controller: _loginIdController,
+                  keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
-                    labelText: 'Email',
-                    prefixIcon: Icon(Icons.email_outlined),
+                    labelText: 'Owner ID (8 digits)',
+                    hintText: '95125268',
+                    prefixIcon: Icon(Icons.badge_outlined),
                   ),
-                  validator: (value) =>
-                      value == null ||
-                          !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
-                              .hasMatch(value.trim())
-                      ? 'Enter a valid email address'
+                  validator: (value) {
+                    try {
+                      cleanAccountId(value ?? '');
+                      return null;
+                    } on FormatException catch (error) {
+                      return error.message;
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _organisationController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Organisation name',
+                    prefixIcon: Icon(Icons.business_outlined),
+                  ),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Enter your organisation name'
                       : null,
                 ),
                 const SizedBox(height: 12),
@@ -241,17 +251,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 if (_message != null || appState.errorMessage != null) ...[
                   const SizedBox(height: 12),
                   Card(
-                    color: (_message?.contains('Check your email') ?? false)
-                        ? Theme.of(context).colorScheme.primaryContainer
-                        : Theme.of(context).colorScheme.errorContainer,
+                    color: Theme.of(context).colorScheme.errorContainer,
                     child: Padding(
                       padding: const EdgeInsets.all(12),
                       child: Text(
                         _message ?? appState.errorMessage!,
                         style: TextStyle(
-                          color: (_message?.contains('Check your email') ?? false)
-                              ? Theme.of(context).colorScheme.onPrimaryContainer
-                              : Theme.of(context).colorScheme.onErrorContainer,
+                          color: Theme.of(context).colorScheme.onErrorContainer,
                         ),
                       ),
                     ),
@@ -279,79 +285,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       child: const Text('Sign in'),
                     ),
                   ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class ForgotPasswordScreen extends ConsumerStatefulWidget {
-  const ForgotPasswordScreen({super.key});
-
-  @override
-  ConsumerState<ForgotPasswordScreen> createState() =>
-      _ForgotPasswordScreenState();
-}
-
-class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
-  final _emailController = TextEditingController();
-  String? _message;
-  bool _isSending = false;
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _sendReset() async {
-    setState(() => _isSending = true);
-    try {
-      await ref
-          .read(appStateProvider.notifier)
-          .resetPassword(_emailController.text);
-      if (mounted) setState(() => _message = 'Password reset email sent.');
-    } catch (error) {
-      if (mounted) setState(() => _message = error.toString());
-    } finally {
-      if (mounted) setState(() => _isSending = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Reset password')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('Enter your email to receive a reset link.'),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    prefixIcon: Icon(Icons.email_outlined),
-                  ),
-                ),
-                if (_message != null) ...[
-                  const SizedBox(height: 12),
-                  Text(_message!),
-                ],
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: _isSending ? null : _sendReset,
-                  child: Text(_isSending ? 'Sending…' : 'Send reset link'),
                 ),
               ],
             ),

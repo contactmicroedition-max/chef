@@ -23,17 +23,22 @@ String formatDateTime(DateTime value) {
   return DateFormat('dd MMM yyyy, HH:mm', 'fr').format(value.toLocal());
 }
 
-/// Takes whatever the user typed, strips spaces/dashes, and returns it as-is.
-/// This is a SIMPLE ID — not a phone number. No country code logic.
-String cleanEmployeeId(String value) {
-  final id = value.trim().replaceAll(RegExp(r'[\s\-]'), '');
-  if (id.isEmpty || id.length < 4) {
-    throw const FormatException('Enter an employee ID (at least 4 characters).');
+/// Validates the 8-digit account ID used to sign in.
+String cleanAccountId(String value) {
+  final id = value.trim();
+  if (!RegExp(r'^\d{8}$').hasMatch(id)) {
+    throw const FormatException('Enter an 8-digit ID.');
   }
   return id;
 }
 
-/// Builds the internal email alias used for Supabase Auth login.
-String employeeLoginEmail(String employeeId) {
-  return 'emp-$employeeId@chef.local';
+/// Builds the private alias used by Supabase Auth. Users sign in with their ID.
+String accountLoginEmail(String loginId) {
+  return 'id-$loginId@chef.local';
+}
+
+String? loginIdFromAuthEmail(String? email) {
+  if (email == null) return null;
+  final match = RegExp(r'^(?:id-|emp-|employee-)(\d{8})@').firstMatch(email);
+  return match?.group(1);
 }
