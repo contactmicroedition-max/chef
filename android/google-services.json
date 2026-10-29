@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "54668938265",
+    "project_id": "chef-73068",
+    "storage_bucket": "chef-73068.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:54668938265:android:b2e49bd3b0e3ff6c602e88",
+        "android_client_info": {
+          "package_name": "com.example.zone"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDHtB7LdU_d5Lkl9xtcpIQJC-qwDDs1Jao"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
