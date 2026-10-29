@@ -23,10 +23,10 @@ String formatDateTime(DateTime value) {
   return DateFormat('dd MMM yyyy, HH:mm', 'fr').format(value.toLocal());
 }
 
-/// Takes whatever the user typed, strips spaces/dashes, and returns it as-is.
-/// This is a SIMPLE ID — not a phone number. No country code logic.
+/// Takes whatever the user typed, strips spaces/dashes, and returns it lowercase.
+/// This is a SIMPLE ID - not a phone number. No country code logic.
 String cleanEmployeeId(String value) {
-  final id = value.trim().replaceAll(RegExp(r'[\s\-]'), '');
+  final id = value.trim().toLowerCase().replaceAll(RegExp(r'[\s\-]'), '');
   if (id.isEmpty || id.length < 4) {
     throw const FormatException('Enter an employee ID (at least 4 characters).');
   }

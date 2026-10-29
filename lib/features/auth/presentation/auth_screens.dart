@@ -175,7 +175,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       if (!mounted) return;
       if (response.session == null) {
         setState(() {
-          _message = 'Check your email to confirm the account, then sign in.';
+          _message = ref.read(appStateProvider).errorMessage ??
+              'Compte créé. Veuillez désactiver "Confirm email" dans Supabase ou confirmer votre adresse email pour vous connecter.';
         });
       }
       // If session exists, _loadUser will set isAuthenticated=true

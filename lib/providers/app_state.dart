@@ -145,19 +145,36 @@ class AppStateNotifier extends Notifier<AppState> {
       AuthResponse response;
 
       if (isEmail) {
-        // Owner / manager email login
+        // Owner / manager email login (case-insensitive)
         response = await client.auth.signInWithPassword(
-          email: trimmed,
+          email: trimmed.toLowerCase(),
           password: password,
         );
       } else {
         // Employee login: the ID is used to build a fake email
         final empId = cleanEmployeeId(trimmed);
-        final email = employeeLoginEmail(empId);
-        response = await client.auth.signInWithPassword(
-          email: email,
-          password: password,
-        );
+        final primaryEmail = employeeLoginEmail(empId);
+        try {
+          response = await client.auth.signInWithPassword(
+            email: primaryEmail,
+            password: password,
+          );
+        } on AuthException catch (e) {
+          // Fallback to legacy email format if needed
+          final msg = e.message.toLowerCase();
+          if (msg.contains('invalid') || msg.contains('credentials')) {
+            try {
+              response = await client.auth.signInWithPassword(
+                email: 'employee-$empId@employee-login.invalid',
+                password: password,
+              );
+            } catch (_) {
+              rethrow;
+            }
+          } else {
+            rethrow;
+          }
+        }
       }
 
       final user = response.user;
@@ -166,10 +183,20 @@ class AppStateNotifier extends Notifier<AppState> {
       }
       await _loadUser(user);
     } on AuthException catch (error) {
+      String displayMsg = error.message;
+      final lower = error.message.toLowerCase();
+      if (lower.contains('invalid login credentials') ||
+          lower.contains('invalid credentials')) {
+        displayMsg =
+            "Identifiant ou mot de passe incorrect. (Si votre compte vient d'être créé, assurez-vous que 'Confirm email' est désactivé dans Supabase).";
+      } else if (lower.contains('email not confirmed')) {
+        displayMsg =
+            "Email non confirmé. Désactivez 'Confirm email' dans Supabase (Authentication > Providers > Email).";
+      }
       state = state.copyWith(
         isLoading: false,
         isAuthenticated: false,
-        errorMessage: error.message,
+        errorMessage: displayMsg,
       );
     } on FormatException catch (error) {
       state = state.copyWith(
@@ -202,8 +229,9 @@ class AppStateNotifier extends Notifier<AppState> {
     final client = _requireSupabase();
     state = state.copyWith(isLoading: true, clearError: true);
     try {
+      final normalizedEmail = email.trim().toLowerCase();
       final response = await client.auth.signUp(
-        email: email.trim(),
+        email: normalizedEmail,
         password: password,
         data: {'full_name': name.trim()},
       );
@@ -216,7 +244,7 @@ class AppStateNotifier extends Notifier<AppState> {
         // Auto-confirm trigger may have fired — try signing in immediately
         try {
           final loginRes = await client.auth.signInWithPassword(
-            email: email.trim(),
+            email: normalizedEmail,
             password: password,
           );
           if (loginRes.user != null) {
@@ -227,7 +255,7 @@ class AppStateNotifier extends Notifier<AppState> {
           state = state.copyWith(
             isLoading: false,
             errorMessage:
-                'Account created. Disable "Confirm email" in Supabase Auth settings, or run migration 007.',
+                "Compte créé. Supabase exige la confirmation d'email : désactivez 'Confirm email' dans Supabase (Authentication > Providers > Email) ou exécutez le script SQL.",
           );
         }
       }
