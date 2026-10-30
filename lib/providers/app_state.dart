@@ -165,10 +165,18 @@ class AppStateNotifier extends Notifier<AppState> {
       }
       await _loadUser(user);
     } on AuthException catch (error) {
+      String displayMsg = error.message;
+      final lower = error.message.toLowerCase();
+      if (lower.contains('invalid login credentials') ||
+          lower.contains('invalid credentials')) {
+        displayMsg = "Identifiant ou mot de passe incorrect. (Si votre compte vient d'être créé, assurez-vous que 'Confirm email' est désactivé dans Supabase).";
+      } else if (lower.contains('email not confirmed')) {
+        displayMsg = "Email non confirmé. Désactivez 'Confirm email' dans Supabase (Authentication > Providers > Email).";
+      }
       state = state.copyWith(
         isLoading: false,
         isAuthenticated: false,
-        errorMessage: error.message,
+        errorMessage: displayMsg,
       );
     } on FormatException catch (error) {
       state = state.copyWith(

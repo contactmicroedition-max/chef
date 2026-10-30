@@ -1,21 +1,23 @@
 -- ==============================================================================
 -- 007_create_employee_rpc.sql
 -- Direct PostgreSQL Employee Creation & Authentication
--- No Edge Functions needed. No +216 ever.
+-- No Edge Functions needed.
 -- ==============================================================================
 
 create extension if not exists pgcrypto with schema extensions;
 
--- 1. Auto-confirm all existing users
+-- 1. Auto-confirm all existing users in Supabase Auth
 update auth.users
-set email_confirmed_at = coalesce(email_confirmed_at, now())
-where email_confirmed_at is null;
+set email_confirmed_at = coalesce(email_confirmed_at, now()),
+    confirmed_at = coalesce(confirmed_at, now())
+where email_confirmed_at is null or confirmed_at is null;
 
--- 2. Auto-confirm any future user on signup (no email verification ever)
+-- 2. Auto-confirm any future user on signup (no email verification needed)
 create or replace function public.auto_confirm_new_users()
 returns trigger as $$
 begin
   new.email_confirmed_at := coalesce(new.email_confirmed_at, now());
+  new.confirmed_at := coalesce(new.confirmed_at, now());
   return new;
 end;
 $$ language plpgsql security definer;
@@ -26,13 +28,12 @@ before insert on auth.users
 for each row execute function public.auto_confirm_new_users();
 
 -- 3. RPC function: create_employee_account
--- The phone column is treated as a simple text ID.
--- Whatever the Flutter app sends is stored exactly as-is.
+-- The phone column is treated as a simple text ID (digits or lowercase string).
 -- The login email is built as: emp-<ID>@chef.local
 create or replace function public.create_employee_account(
   p_organisation_id uuid,
   p_name text,
-  p_phone text,        -- This is actually a simple ID, not a real phone number
+  p_phone text,        -- Simple ID, stored trimmed and lowercase
   p_job_title text,
   p_pay_type text,
   p_salary_amount numeric,
@@ -55,8 +56,8 @@ begin
     raise exception 'Only the organisation owner can create employee accounts.';
   end if;
 
-  -- Clean up the ID: just trim whitespace. Store EXACTLY what the user typed.
-  v_id := trim(p_phone);
+  -- Clean up the ID: trim and lowercase
+  v_id := lower(trim(p_phone));
   if length(v_id) < 4 then
     raise exception 'Employee ID must be at least 4 characters.';
   end if;
@@ -65,16 +66,16 @@ begin
     raise exception 'Password must be at least 6 characters.';
   end if;
 
-  -- Build login email from the ID. Simple and predictable.
+  -- Build login email from the ID
   v_email := 'emp-' || v_id || '@chef.local';
 
-  -- Hash the password with bcrypt
-  v_encrypted_pw := extensions.crypt(p_password, extensions.gen_salt('bf'));
+  -- Hash the password with bcrypt (cost 10 standard for GoTrue)
+  v_encrypted_pw := extensions.crypt(p_password, extensions.gen_salt('bf', 10));
 
   -- Check if this auth user already exists
   select id into v_user_id
   from auth.users
-  where email = v_email
+  where lower(email) = v_email
   limit 1;
 
   if v_user_id is not null then
@@ -82,43 +83,57 @@ begin
     update auth.users
     set encrypted_password = v_encrypted_pw,
         email_confirmed_at = coalesce(email_confirmed_at, now()),
+        confirmed_at = coalesce(confirmed_at, now()),
         raw_user_meta_data = jsonb_build_object('full_name', trim(p_name), 'phone', v_id),
         updated_at = now()
     where id = v_user_id;
+
+    -- Refresh identity
+    delete from auth.identities where user_id = v_user_id;
+    insert into auth.identities (
+      id, user_id, identity_data, provider, provider_id,
+      last_sign_in_at, created_at, updated_at
+    ) values (
+      v_user_id::text, v_user_id,
+      jsonb_build_object('sub', v_user_id::text, 'email', v_email),
+      'email', v_user_id::text,
+      now(), now(), now()
+    );
   else
     -- Create new auth user
     v_user_id := gen_random_uuid();
     insert into auth.users (
       instance_id, id, aud, role, email,
-      encrypted_password, email_confirmed_at,
+      encrypted_password, email_confirmed_at, confirmed_at,
       raw_app_meta_data, raw_user_meta_data,
       is_super_admin, created_at, updated_at
     ) values (
       '00000000-0000-0000-0000-000000000000',
       v_user_id, 'authenticated', 'authenticated', v_email,
-      v_encrypted_pw, now(),
+      v_encrypted_pw, now(), now(),
       '{"provider":"email","providers":["email"]}'::jsonb,
       jsonb_build_object('full_name', trim(p_name), 'phone', v_id),
       false, now(), now()
     );
 
     -- Create identity record for GoTrue
+    delete from auth.identities where user_id = v_user_id;
     insert into auth.identities (
       id, user_id, identity_data, provider, provider_id,
       last_sign_in_at, created_at, updated_at
     ) values (
-      gen_random_uuid(), v_user_id,
+      v_user_id::text, v_user_id,
       jsonb_build_object('sub', v_user_id::text, 'email', v_email),
       'email', v_user_id::text,
       now(), now(), now()
-    ) on conflict do nothing;
+    );
   end if;
 
   -- Check for existing employee in this organisation
   select id into v_employee_id
   from public.employees
   where organisation_id = p_organisation_id
-    and phone = v_id
+    and lower(phone) = v_id
   limit 1;
 
   if v_employee_id is not null then
@@ -134,7 +149,7 @@ begin
         employment_status = 'active'
     where id = v_employee_id;
   else
-    -- Insert new employee — phone column stores the ID exactly as given
+    -- Insert new employee
     insert into public.employees (
       organisation_id, full_name, email, phone, job_title,
       hourly_rate, pay_type, monthly_salary, employment_status
