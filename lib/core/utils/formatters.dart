@@ -37,3 +37,31 @@ String cleanEmployeeId(String value) {
 String employeeLoginEmail(String employeeId) {
   return 'emp-$employeeId@chef.local';
 }
+
+/// Returns a phone number in the E.164 format expected by Supabase Auth.
+///
+/// Local Tunisian 8-digit numbers are accepted because this application is
+/// configured for Tunisia; international numbers must include their country
+/// code.
+String normalizeAuthPhone(String value) {
+  var phone = value.trim().replaceAll(RegExp(r'[\s().-]'), '');
+  if (phone.startsWith('00')) {
+    phone = '+${phone.substring(2)}';
+  } else if (!phone.startsWith('+') && RegExp(r'^\d{8}$').hasMatch(phone)) {
+    phone = '+216$phone';
+  }
+
+  if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
+    throw const FormatException(
+      'Enter a valid phone number with country code, for example +21695125268.',
+    );
+  }
+  return phone;
+}
+
+bool looksLikePhoneNumber(String value) {
+  final trimmed = value.trim();
+  return trimmed.startsWith('+') ||
+      trimmed.startsWith('00') ||
+      RegExp(r'^\d{8}$').hasMatch(trimmed.replaceAll(RegExp(r'[\s().-]'), ''));
+}

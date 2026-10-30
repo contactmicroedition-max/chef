@@ -10,15 +10,19 @@ void main() {
     expect(cleanEmployeeId('95125268'), '95125268');
     expect(cleanEmployeeId('  95125268  '), '95125268');
     expect(cleanEmployeeId('1234'), '1234');
-    expect(
-      () => cleanEmployeeId('ab'),
-      throwsA(isA<FormatException>()),
-    );
+    expect(() => cleanEmployeeId('ab'), throwsA(isA<FormatException>()));
   });
 
   test('login email is built from the employee ID', () {
     expect(employeeLoginEmail('95125268'), 'emp-95125268@chef.local');
     expect(employeeLoginEmail('1234'), 'emp-1234@chef.local');
+  });
+
+  test('phone numbers are normalized for Supabase Auth', () {
+    expect(normalizeAuthPhone('+216 95 125 268'), '+21695125268');
+    expect(normalizeAuthPhone('95125268'), '+21695125268');
+    expect(normalizeAuthPhone('0021612345678'), '+21612345678');
+    expect(() => normalizeAuthPhone('123'), throwsA(isA<FormatException>()));
   });
 
   test('monthly salary is independent of recorded hours', () {
@@ -87,7 +91,10 @@ void main() {
     await tester.pump();
 
     // Validation messages should appear
-    expect(find.text('Enter your email or employee ID'), findsOneWidget);
+    expect(
+      find.text('Enter your email, phone number, or employee ID'),
+      findsOneWidget,
+    );
     expect(find.text('Enter your password'), findsOneWidget);
   });
 }

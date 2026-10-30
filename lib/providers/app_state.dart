@@ -135,7 +135,7 @@ class AppStateNotifier extends Notifier<AppState> {
 
   // ─── SIGN IN ────────────────────────────────────────────────────
 
-  /// Owner signs in with email, employee signs in with their ID (digits).
+  /// Signs in with an email address, Supabase phone number, or legacy employee ID.
   Future<void> signIn(String identifier, String password) async {
     final client = _requireSupabase();
     state = state.copyWith(isLoading: true, clearError: true);
@@ -145,13 +145,37 @@ class AppStateNotifier extends Notifier<AppState> {
       AuthResponse response;
 
       if (isEmail) {
-        // Owner / manager email login (case-insensitive)
         response = await client.auth.signInWithPassword(
           email: trimmed.toLowerCase(),
           password: password,
         );
+      } else if (looksLikePhoneNumber(trimmed)) {
+        try {
+          response = await client.auth.signInWithPassword(
+            phone: normalizeAuthPhone(trimmed),
+            password: password,
+          );
+        } on AuthException catch (error) {
+          // An 8-digit value may also be a legacy employee ID.
+          final msg = error.message.toLowerCase();
+          if (!msg.contains('invalid') && !msg.contains('credentials')) {
+            rethrow;
+          }
+          final empId = cleanEmployeeId(trimmed);
+          try {
+            response = await client.auth.signInWithPassword(
+              email: employeeLoginEmail(empId),
+              password: password,
+            );
+          } on AuthException catch (_) {
+            response = await client.auth.signInWithPassword(
+              email: 'employee-$empId@employee-login.invalid',
+              password: password,
+            );
+          }
+        }
       } else {
-        // Employee login: the ID is used to build a fake email
+        // Keep supporting employee IDs created before phone authentication.
         final empId = cleanEmployeeId(trimmed);
         final primaryEmail = employeeLoginEmail(empId);
         try {
@@ -223,30 +247,44 @@ class AppStateNotifier extends Notifier<AppState> {
 
   Future<AuthResponse> register({
     required String name,
-    required String email,
+    required String identifier,
     required String password,
   }) async {
     final client = _requireSupabase();
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final normalizedEmail = email.trim().toLowerCase();
-      final response = await client.auth.signUp(
-        email: normalizedEmail,
-        password: password,
-        data: {'full_name': name.trim()},
-      );
+      final isEmail = identifier.trim().contains('@');
+      final normalizedIdentifier = isEmail
+          ? identifier.trim().toLowerCase()
+          : normalizeAuthPhone(identifier);
+      final response = isEmail
+          ? await client.auth.signUp(
+              email: normalizedIdentifier,
+              password: password,
+              data: {'full_name': name.trim()},
+            )
+          : await client.auth.signUp(
+              phone: normalizedIdentifier,
+              password: password,
+              data: {'full_name': name.trim()},
+            );
       if (response.user == null) {
         throw const AuthException('Registration returned no user.');
       }
       if (response.session != null) {
         await _loadUser(response.user!);
       } else {
-        // Auto-confirm trigger may have fired — try signing in immediately
+        // Auto-confirm trigger may have fired — try signing in immediately.
         try {
-          final loginRes = await client.auth.signInWithPassword(
-            email: normalizedEmail,
-            password: password,
-          );
+          final loginRes = isEmail
+              ? await client.auth.signInWithPassword(
+                  email: normalizedIdentifier,
+                  password: password,
+                )
+              : await client.auth.signInWithPassword(
+                  phone: normalizedIdentifier,
+                  password: password,
+                );
           if (loginRes.user != null) {
             await _loadUser(loginRes.user!);
             return loginRes;
@@ -260,6 +298,32 @@ class AppStateNotifier extends Notifier<AppState> {
         }
       }
       return response;
+    } on AuthException catch (error) {
+      state = state.copyWith(isLoading: false, errorMessage: error.message);
+      rethrow;
+    } catch (error) {
+      state = state.copyWith(isLoading: false, errorMessage: error.toString());
+      rethrow;
+    }
+  }
+
+  Future<void> verifyPhoneSignup({
+    required String phone,
+    required String token,
+  }) async {
+    final client = _requireSupabase();
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final response = await client.auth.verifyOTP(
+        phone: normalizeAuthPhone(phone),
+        token: token.trim(),
+        type: OtpType.sms,
+      );
+      final user = response.user;
+      if (user == null || response.session == null) {
+        throw const AuthException('Phone verification did not create a session.');
+      }
+      await _loadUser(user);
     } on AuthException catch (error) {
       state = state.copyWith(isLoading: false, errorMessage: error.message);
       rethrow;
