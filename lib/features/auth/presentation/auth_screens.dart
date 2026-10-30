@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:zone/providers/app_state.dart';
+import 'package:zone/core/utils/formatters.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -59,12 +60,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     keyboardType: TextInputType.text,
                     autofillHints: const [AutofillHints.username],
                     decoration: const InputDecoration(
-                      labelText: 'Email or Employee ID',
-                      hintText: 'owner@email.com or 95125268',
+                      labelText: 'Email, phone number, or employee ID',
+                      hintText: 'owner@email.com or +21695125268',
                       prefixIcon: Icon(Icons.person_outline),
                     ),
                     validator: (value) => value == null || value.trim().isEmpty
-                        ? 'Enter your email or employee ID'
+                        ? 'Enter your email, phone number, or employee ID'
                         : null,
                   ),
                   const SizedBox(height: 16),
@@ -99,7 +100,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           appState.errorMessage!,
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: Theme.of(context).colorScheme.onErrorContainer,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onErrorContainer,
                           ),
                         ),
                       ),
@@ -148,16 +151,19 @@ class RegisterScreen extends ConsumerStatefulWidget {
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _nameController = TextEditingController();
-  final _emailController = TextEditingController();
+  final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _otpController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   String? _message;
+  bool _phoneVerificationRequired = false;
 
   @override
   void dispose() {
     _nameController.dispose();
-    _emailController.dispose();
+    _identifierController.dispose();
     _passwordController.dispose();
+    _otpController.dispose();
     super.dispose();
   }
 
@@ -169,18 +175,42 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           .read(appStateProvider.notifier)
           .register(
             name: _nameController.text,
-            email: _emailController.text,
+            identifier: _identifierController.text,
             password: _passwordController.text,
           );
       if (!mounted) return;
       if (response.session == null) {
         setState(() {
-          _message = ref.read(appStateProvider).errorMessage ??
-              'Compte créé. Veuillez désactiver "Confirm email" dans Supabase ou confirmer votre adresse email pour vous connecter.';
+          _phoneVerificationRequired = looksLikePhoneNumber(
+            _identifierController.text,
+          );
+          _message = _phoneVerificationRequired
+              ? 'Enter the 6-digit code sent by SMS.'
+              : ref.read(appStateProvider).errorMessage ??
+                    'Account created. Confirm your email before signing in.';
         });
       }
       // If session exists, _loadUser will set isAuthenticated=true
       // and the router redirect will take the user to /org-setup or /home.
+    } catch (_) {
+      if (mounted) {
+        setState(() => _message = ref.read(appStateProvider).errorMessage);
+      }
+    }
+  }
+
+  Future<void> _verifyPhone() async {
+    if (_otpController.text.trim().length != 6) {
+      setState(() => _message = 'Enter the 6-digit SMS code.');
+      return;
+    }
+    try {
+      await ref
+          .read(appStateProvider.notifier)
+          .verifyPhoneSignup(
+            phone: _identifierController.text,
+            token: _otpController.text,
+          );
     } catch (_) {
       if (mounted) {
         setState(() => _message = ref.read(appStateProvider).errorMessage);
@@ -214,18 +244,30 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
-                  controller: _emailController,
+                  controller: _identifierController,
                   keyboardType: TextInputType.emailAddress,
                   decoration: const InputDecoration(
-                    labelText: 'Email',
-                    prefixIcon: Icon(Icons.email_outlined),
+                    labelText: 'Email or phone number',
+                    hintText: 'name@example.com or +21695125268',
+                    prefixIcon: Icon(Icons.contact_mail_outlined),
                   ),
-                  validator: (value) =>
-                      value == null ||
-                          !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Enter an email or phone number';
+                    }
+                    if (value.contains('@')) {
+                      return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
                               .hasMatch(value.trim())
-                      ? 'Enter a valid email address'
-                      : null,
+                          ? null
+                          : 'Enter a valid email address';
+                    }
+                    try {
+                      normalizeAuthPhone(value);
+                      return null;
+                    } on FormatException catch (error) {
+                      return error.message;
+                    }
+                  },
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -239,6 +281,22 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       ? 'Use at least 6 characters'
                       : null,
                 ),
+                if (_phoneVerificationRequired) ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _otpController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    decoration: const InputDecoration(
+                      labelText: 'SMS verification code',
+                      prefixIcon: Icon(Icons.sms_outlined),
+                    ),
+                  ),
+                  FilledButton(
+                    onPressed: appState.isLoading ? null : _verifyPhone,
+                    child: const Text('Verify phone'),
+                  ),
+                ],
                 if (_message != null || appState.errorMessage != null) ...[
                   const SizedBox(height: 12),
                   Card(
@@ -250,7 +308,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       child: Text(
                         _message ?? appState.errorMessage!,
                         style: TextStyle(
-                          color: (_message?.contains('Check your email') ?? false)
+                          color:
+                              (_message?.contains('Check your email') ?? false)
                               ? Theme.of(context).colorScheme.onPrimaryContainer
                               : Theme.of(context).colorScheme.onErrorContainer,
                         ),
