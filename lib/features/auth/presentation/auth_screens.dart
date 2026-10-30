@@ -57,16 +57,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   const SizedBox(height: 24),
                   TextFormField(
                     controller: _identifierController,
-                    keyboardType: TextInputType.number,
+                    keyboardType: TextInputType.emailAddress,
                     autofillHints: const [AutofillHints.username],
                     decoration: const InputDecoration(
-                      labelText: '8-digit ID',
-                      hintText: '95125268',
+                      labelText: 'Email, phone number, or employee ID',
+                      hintText: 'name@example.com, +21695125268, or ID',
                       prefixIcon: Icon(Icons.person_outline),
                     ),
                     validator: (value) {
+                      final identifier = value?.trim() ?? '';
+                      if (identifier.isEmpty) {
+                        return 'Enter your email, phone number, or employee ID';
+                      }
+                      if (identifier.contains('@')) return null;
+                      if (looksLikePhoneNumber(identifier)) return null;
                       try {
-                        cleanAccountId(value ?? '');
+                        cleanEmployeeId(identifier);
                         return null;
                       } on FormatException catch (error) {
                         return error.message;
@@ -148,18 +154,21 @@ class RegisterScreen extends ConsumerStatefulWidget {
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _nameController = TextEditingController();
-  final _loginIdController = TextEditingController();
+  final _identifierController = TextEditingController();
   final _organisationController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _otpController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   String? _message;
+  bool _phoneVerificationRequired = false;
 
   @override
   void dispose() {
     _nameController.dispose();
-    _loginIdController.dispose();
+    _identifierController.dispose();
     _organisationController.dispose();
     _passwordController.dispose();
+    _otpController.dispose();
     super.dispose();
   }
 
@@ -167,13 +176,45 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _message = null);
     try {
-      await ref
+      final response = await ref
           .read(appStateProvider.notifier)
           .register(
             name: _nameController.text,
-            loginId: _loginIdController.text,
+            identifier: _identifierController.text,
             organisationName: _organisationController.text,
             password: _passwordController.text,
+          );
+      if (response == null) return;
+      if (!mounted) return;
+      if (response.session == null) {
+        setState(() {
+          _phoneVerificationRequired = looksLikePhoneNumber(
+            _identifierController.text,
+          );
+          _message = _phoneVerificationRequired
+              ? 'Enter the 6-digit code sent by SMS.'
+              : ref.read(appStateProvider).errorMessage ??
+                    'Account created. Confirm your email before signing in.';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _message = ref.read(appStateProvider).errorMessage);
+      }
+    }
+  }
+
+  Future<void> _verifyPhone() async {
+    if (_otpController.text.trim().length != 6) {
+      setState(() => _message = 'Enter the 6-digit SMS code.');
+      return;
+    }
+    try {
+      await ref
+          .read(appStateProvider.notifier)
+          .verifyPhoneSignup(
+            phone: _identifierController.text,
+            token: _otpController.text,
           );
     } catch (_) {
       if (mounted) {
@@ -208,16 +249,27 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
-                  controller: _loginIdController,
-                  keyboardType: TextInputType.number,
+                  controller: _identifierController,
+                  keyboardType: TextInputType.emailAddress,
                   decoration: const InputDecoration(
-                    labelText: 'Owner ID (8 digits)',
-                    hintText: '95125268',
-                    prefixIcon: Icon(Icons.badge_outlined),
+                    labelText: 'Email, phone number, or 8-digit ID',
+                    hintText: 'name@example.com, +21695125268, or 95125268',
+                    prefixIcon: Icon(Icons.contact_mail_outlined),
                   ),
                   validator: (value) {
+                    final identifier = value?.trim() ?? '';
+                    if (identifier.isEmpty) {
+                      return 'Enter an email, phone number, or 8-digit ID';
+                    }
+                    if (identifier.contains('@')) {
+                      return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                              .hasMatch(identifier)
+                          ? null
+                          : 'Enter a valid email address';
+                    }
+                    if (RegExp(r'^\d{8}$').hasMatch(identifier)) return null;
                     try {
-                      cleanAccountId(value ?? '');
+                      normalizeAuthPhone(identifier);
                       return null;
                     } on FormatException catch (error) {
                       return error.message;
@@ -232,8 +284,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     labelText: 'Organisation name',
                     prefixIcon: Icon(Icons.business_outlined),
                   ),
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? 'Enter your organisation name'
+                  validator: (value) =>
+                      RegExp(r'^\d{8}$')
+                              .hasMatch(_identifierController.text.trim()) &&
+                          (value == null || value.trim().isEmpty)
+                      ? 'Enter your organisation name for an 8-digit ID account'
                       : null,
                 ),
                 const SizedBox(height: 12),
@@ -248,6 +303,22 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       ? 'Use at least 6 characters'
                       : null,
                 ),
+                if (_phoneVerificationRequired) ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _otpController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    decoration: const InputDecoration(
+                      labelText: 'SMS verification code',
+                      prefixIcon: Icon(Icons.sms_outlined),
+                    ),
+                  ),
+                  FilledButton(
+                    onPressed: appState.isLoading ? null : _verifyPhone,
+                    child: const Text('Verify phone'),
+                  ),
+                ],
                 if (_message != null || appState.errorMessage != null) ...[
                   const SizedBox(height: 12),
                   Card(
@@ -257,7 +328,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       child: Text(
                         _message ?? appState.errorMessage!,
                         style: TextStyle(
-                          color: Theme.of(context).colorScheme.onErrorContainer,
+                          color:
+                              (_message?.contains('Check your email') ?? false)
+                              ? Theme.of(context).colorScheme.onPrimaryContainer
+                              : Theme.of(context).colorScheme.onErrorContainer,
                         ),
                       ),
                     ),

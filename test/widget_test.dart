@@ -13,9 +13,23 @@ void main() {
     expect(() => cleanAccountId('12a45678'), throwsA(isA<FormatException>()));
   });
 
+  test('employee ID is stored exactly as typed (no prefix logic)', () {
+    expect(cleanEmployeeId('95125268'), '95125268');
+    expect(cleanEmployeeId('  95125268  '), '95125268');
+    expect(cleanEmployeeId('1234'), '1234');
+    expect(() => cleanEmployeeId('ab'), throwsA(isA<FormatException>()));
+  });
+
   test('Supabase login alias remains internal to the app', () {
     expect(accountLoginEmail('95125268'), 'id-95125268@chef.local');
     expect(loginIdFromAuthEmail('id-95125268@chef.local'), '95125268');
+  });
+
+  test('phone numbers are normalized for Supabase Auth', () {
+    expect(normalizeAuthPhone('+216 95 125 268'), '+21695125268');
+    expect(normalizeAuthPhone('95125268'), '+21695125268');
+    expect(normalizeAuthPhone('0021612345678'), '+21612345678');
+    expect(() => normalizeAuthPhone('123'), throwsA(isA<FormatException>()));
   });
 
   test('monthly salary is independent of recorded hours', () {
@@ -84,7 +98,10 @@ void main() {
     await tester.pump();
 
     // Validation messages should appear
-    expect(find.text('Enter an 8-digit ID.'), findsOneWidget);
+    expect(
+      find.text('Enter your email, phone number, or employee ID'),
+      findsOneWidget,
+    );
     expect(find.text('Enter your password'), findsOneWidget);
   });
 }

@@ -132,34 +132,60 @@ class AppStateNotifier extends Notifier<AppState> {
 
   // ─── SIGN IN ────────────────────────────────────────────────────
 
-  /// Every account signs in with its 8-digit ID and password.
+  /// Signs in with an email address, Supabase phone number, or legacy employee ID.
   Future<void> signIn(String identifier, String password) async {
     final client = _requireSupabase();
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final trimmed = identifier.trim();
-      final loginId = cleanAccountId(trimmed);
-      final aliases = [
-        accountLoginEmail(loginId),
-        'emp-$loginId@chef.local',
-        'employee-$loginId@employee-login.invalid',
-      ];
       AuthResponse? response;
-      AuthException? lastAuthError;
-      for (final alias in aliases) {
-        try {
-          response = await client.auth.signInWithPassword(
-            email: alias,
-            password: password,
-          );
-          break;
-        } on AuthException catch (error) {
-          lastAuthError = error;
+      Future<void> signInWithLegacyId(String employeeId) async {
+        final aliases = [
+          if (RegExp(r'^\d{8}$').hasMatch(employeeId))
+            accountLoginEmail(employeeId),
+          employeeLoginEmail(employeeId),
+          'employee-$employeeId@employee-login.invalid',
+        ];
+        AuthException? lastAuthError;
+        for (final alias in aliases) {
+          try {
+            response = await client.auth.signInWithPassword(
+              email: alias,
+              password: password,
+            );
+            return;
+          } on AuthException catch (error) {
+            lastAuthError = error;
+          }
         }
+        throw lastAuthError!;
       }
 
-      if (response == null) throw lastAuthError!;
-      final user = response.user;
+      if (trimmed.contains('@')) {
+        response = await client.auth.signInWithPassword(
+          email: trimmed.toLowerCase(),
+          password: password,
+        );
+      } else if (looksLikePhoneNumber(trimmed)) {
+        try {
+          response = await client.auth.signInWithPassword(
+            phone: normalizeAuthPhone(trimmed),
+            password: password,
+          );
+        } on AuthException catch (error) {
+          final msg = error.message.toLowerCase();
+          if (!RegExp(r'^\d{8}$').hasMatch(trimmed) ||
+              (!msg.contains('invalid') && !msg.contains('credentials'))) {
+            rethrow;
+          }
+          await signInWithLegacyId(cleanEmployeeId(trimmed));
+        }
+      } else {
+        final empId = cleanEmployeeId(trimmed);
+        await signInWithLegacyId(empId);
+      }
+
+      final user = response?.user;
       if (user == null) {
         throw const AuthException('Authentication returned no user.');
       }
@@ -201,33 +227,112 @@ class AppStateNotifier extends Notifier<AppState> {
 
   // ─── REGISTER ───────────────────────────────────────────────────
 
-  Future<void> register({
+  Future<AuthResponse?> register({
     required String name,
-    required String loginId,
-    required String organisationName,
+    required String identifier,
+    String organisationName = '',
     required String password,
   }) async {
     final client = _requireSupabase();
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final validLoginId = cleanAccountId(loginId);
-      await client.rpc(
-        'create_owner_account',
-        params: {
-          'p_name': name.trim(),
-          'p_login_id': validLoginId,
-          'p_password': password,
-          'p_organisation_name': organisationName.trim(),
-        },
-      );
-      final response = await client.auth.signInWithPassword(
-        email: accountLoginEmail(validLoginId),
-        password: password,
+      final trimmedIdentifier = identifier.trim();
+      if (RegExp(r'^\d{8}$').hasMatch(trimmedIdentifier)) {
+        if (organisationName.trim().isEmpty) {
+          throw const FormatException(
+            'Enter an organisation name for an 8-digit ID account.',
+          );
+        }
+        await client.rpc(
+          'create_owner_account',
+          params: {
+            'p_name': name.trim(),
+            'p_login_id': cleanAccountId(trimmedIdentifier),
+            'p_password': password,
+            'p_organisation_name': organisationName.trim(),
+          },
+        );
+        final response = await client.auth.signInWithPassword(
+          email: accountLoginEmail(trimmedIdentifier),
+          password: password,
+        );
+        final user = response.user;
+        if (user == null) {
+          throw const AuthException(
+            'Account created but sign-in returned no user.',
+          );
+        }
+        await _loadUser(user);
+        return null;
+      }
+
+      final isEmail = trimmedIdentifier.contains('@');
+      final normalizedIdentifier = isEmail
+          ? trimmedIdentifier.toLowerCase()
+          : normalizeAuthPhone(trimmedIdentifier);
+      final response = isEmail
+          ? await client.auth.signUp(
+              email: normalizedIdentifier,
+              password: password,
+              data: {'full_name': name.trim()},
+            )
+          : await client.auth.signUp(
+              phone: normalizedIdentifier,
+              password: password,
+              data: {'full_name': name.trim()},
+            );
+      if (response.user == null) {
+        throw const AuthException('Registration returned no user.');
+      }
+      if (response.session != null) {
+        await _loadUser(response.user!);
+      } else {
+        try {
+          final loginRes = isEmail
+              ? await client.auth.signInWithPassword(
+                  email: normalizedIdentifier,
+                  password: password,
+                )
+              : await client.auth.signInWithPassword(
+                  phone: normalizedIdentifier,
+                  password: password,
+                );
+          if (loginRes.user != null) {
+            await _loadUser(loginRes.user!);
+          }
+        } on AuthException catch (_) {
+          state = state.copyWith(
+            isLoading: false,
+            errorMessage: "Compte créé. Supabase exige la confirmation d'email : désactivez 'Confirm email' dans Supabase (Authentication > Providers > Email) ou exécutez le script SQL.",
+          );
+        }
+      }
+      return response;
+    } on AuthException catch (error) {
+      state = state.copyWith(isLoading: false, errorMessage: error.message);
+      rethrow;
+    } catch (error) {
+      state = state.copyWith(isLoading: false, errorMessage: error.toString());
+      rethrow;
+    }
+  }
+
+  Future<void> verifyPhoneSignup({
+    required String phone,
+    required String token,
+  }) async {
+    final client = _requireSupabase();
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final response = await client.auth.verifyOTP(
+        phone: normalizeAuthPhone(phone),
+        token: token.trim(),
+        type: OtpType.sms,
       );
       final user = response.user;
-      if (user == null) {
+      if (user == null || response.session == null) {
         throw const AuthException(
-          'Account created but sign-in returned no user.',
+          'Phone verification did not create a session.',
         );
       }
       await _loadUser(user);
@@ -238,6 +343,11 @@ class AppStateNotifier extends Notifier<AppState> {
       state = state.copyWith(isLoading: false, errorMessage: error.toString());
       rethrow;
     }
+  }
+
+  Future<void> resetPassword(String email) async {
+    final client = _requireSupabase();
+    await client.auth.resetPasswordForEmail(email.trim());
   }
 
   Future<void> signOut() async {
