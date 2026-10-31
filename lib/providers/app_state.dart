@@ -14,6 +14,7 @@ import 'package:zone/features/auth/data/auth_repository.dart';
 import 'package:zone/features/attendance/data/attendance_repository.dart';
 import 'package:zone/features/employees/data/employees_repository.dart';
 import 'package:zone/features/organisations/data/organisations_repository.dart';
+import 'package:zone/features/payroll/data/payroll_repository.dart';
 
 enum AuthStatus { unknown, authenticated, unauthenticated }
 
@@ -364,7 +365,6 @@ class AppStateNotifier extends Notifier<AppState> {
     required String employeeId,
     required double amount,
   }) async {
-    final client = _requireSupabase();
     final organisationId = state.selectedOrganisationId;
     if (organisationId == null) {
       throw StateError('Select an organisation before recording an advance.');
@@ -373,13 +373,14 @@ class AppStateNotifier extends Notifier<AppState> {
         state.currentRole != EmployeeRole.manager) {
       throw StateError('Only organisation managers can record advances.');
     }
-    await client.from('salary_advances').insert({
-      'organisation_id': organisationId,
-      'employee_id': employeeId,
-      'amount': amount,
-      'status': 'approved',
-    });
-    final user = client.auth.currentUser;
+    await ref
+        .read(payrollRepositoryProvider)
+        .recordAdvance(
+          organisationId: organisationId,
+          employeeId: employeeId,
+          amount: amount,
+        );
+    final user = ref.read(authRepositoryProvider).currentUser;
     if (user == null) throw const AuthException('Session expired.');
     await _loadUser(user, preferredOrganisationId: organisationId);
   }
@@ -562,30 +563,18 @@ class AppStateNotifier extends Notifier<AppState> {
 
       List<SalaryAdvance> advancesList = [];
       try {
-        final advancesRows = await client
-            .from('salary_advances')
-            .select()
-            .eq('organisation_id', selectedId)
-            .order('requested_at', ascending: false)
-            .limit(200);
-        advancesList = List<Map<String, dynamic>>.from(advancesRows)
-            .map(_advanceFromRow)
-            .toList();
+        advancesList = await ref
+            .read(payrollRepositoryProvider)
+            .advancesForOrganisation(selectedId);
       } catch (e) {
         debugPrint('Could not load advances: $e');
       }
 
       List<SalaryPayment> paymentsList = [];
       try {
-        final paymentRows = await client
-            .from('salary_payments')
-            .select()
-            .eq('organisation_id', selectedId)
-            .order('paid_at', ascending: false)
-            .limit(200);
-        paymentsList = List<Map<String, dynamic>>.from(paymentRows)
-            .map(_paymentFromRow)
-            .toList();
+        paymentsList = await ref
+            .read(payrollRepositoryProvider)
+            .paymentsForOrganisation(selectedId);
       } catch (e) {
         debugPrint('Could not load payments: $e');
       }
@@ -637,28 +626,6 @@ class AppStateNotifier extends Notifier<AppState> {
     final metadata = user.userMetadata;
     final loginId = metadata == null ? null : metadata['login_id'];
     return loginId is String ? loginId : loginIdFromAuthEmail(user.email);
-  }
-
-  SalaryAdvance _advanceFromRow(Map<String, dynamic> row) {
-    return SalaryAdvance(
-      id: row['id'] as String,
-      employeeId: row['employee_id'] as String,
-      organisationId: row['organisation_id'] as String,
-      amount: (row['amount'] as num).toDouble(),
-      requestedAt: DateTime.parse(row['requested_at'] as String),
-      status: row['status'] as String? ?? 'pending',
-    );
-  }
-
-  SalaryPayment _paymentFromRow(Map<String, dynamic> row) {
-    return SalaryPayment(
-      id: row['id'] as String,
-      employeeId: row['employee_id'] as String,
-      organisationId: row['organisation_id'] as String,
-      amount: (row['amount'] as num).toDouble(),
-      paidAt: DateTime.parse(row['paid_at'] as String),
-      reference: row['reference'] as String? ?? '',
-    );
   }
 
   EmployeeRole _parseRole(String role) => switch (role) {
