@@ -413,7 +413,6 @@ class AppStateNotifier extends Notifier<AppState> {
     required EmployeeRole role,
     String? employeeId,
   }) async {
-    final client = _requireSupabase();
     final organisationId = state.selectedOrganisationId;
     if (organisationId == null) {
       throw StateError('Select an organisation before assigning a role.');
@@ -431,7 +430,7 @@ class AppStateNotifier extends Notifier<AppState> {
           role: role.name,
           employeeId: role == EmployeeRole.employee ? employeeId : null,
         );
-    final user = client.auth.currentUser;
+    final user = ref.read(authRepositoryProvider).currentUser;
     if (user == null) throw const AuthException('Session expired.');
     await _loadUser(user, preferredOrganisationId: organisationId);
   }
@@ -496,7 +495,10 @@ class AppStateNotifier extends Notifier<AppState> {
     );
 
     try {
-      final client = _requireSupabase();
+      final client = ref.read(supabaseClientProvider);
+      if (client == null) {
+        throw StateError('Supabase is not configured.');
+      }
 
       final repository = ref.read(organisationsRepositoryProvider);
       final membershipRows = await repository.membershipsForUser(user.id);
@@ -633,16 +635,6 @@ class AppStateNotifier extends Notifier<AppState> {
     'manager' => EmployeeRole.manager,
     _ => EmployeeRole.employee,
   };
-
-  SupabaseClient _requireSupabase() {
-    final client = ref.read(supabaseClientProvider);
-    if (client == null) {
-      throw StateError(
-        'Supabase is not configured. Check SUPABASE_URL and SUPABASE_ANON_KEY in .env',
-      );
-    }
-    return client;
-  }
 }
 
 final appStateProvider = NotifierProvider<AppStateNotifier, AppState>(
