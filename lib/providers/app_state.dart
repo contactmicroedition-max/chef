@@ -11,6 +11,7 @@ import 'package:zone/core/models/payroll.dart';
 import 'package:zone/core/services/push_notification_service.dart';
 import 'package:zone/core/utils/formatters.dart';
 import 'package:zone/features/auth/data/auth_repository.dart';
+import 'package:zone/features/organisations/data/organisations_repository.dart';
 
 enum AuthStatus { unknown, authenticated, unauthenticated }
 
@@ -281,19 +282,16 @@ class AppStateNotifier extends Notifier<AppState> {
     String? phone,
     String currency = 'TND',
   }) async {
-    final client = _requireSupabase();
+    final repository = ref.read(organisationsRepositoryProvider);
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      await client.rpc(
-        'create_organisation',
-        params: {
-          'p_name': name.trim(),
-          'p_address': address?.trim().isEmpty == true ? null : address?.trim(),
-          'p_phone': phone?.trim().isEmpty == true ? null : phone?.trim(),
-          'p_currency': currency,
-        },
+      await repository.createOrganisation(
+        name: name,
+        address: address,
+        phone: phone,
+        currency: currency,
       );
-      final user = client.auth.currentUser;
+      final user = ref.read(authRepositoryProvider).currentUser;
       if (user == null) throw const AuthException('Session expired.');
       await _loadUser(user);
     } catch (error) {
@@ -308,9 +306,11 @@ class AppStateNotifier extends Notifier<AppState> {
     if (selected == null) {
       throw StateError('The selected organisation is not accessible.');
     }
-    final membership = await _membershipFor(organisationId);
-    final user = _requireSupabase().auth.currentUser;
+    final user = ref.read(authRepositoryProvider).currentUser;
     if (user == null) throw const AuthException('Session expired.');
+    final membership = await ref
+        .read(organisationsRepositoryProvider)
+        .membershipFor(organisationId: organisationId, userId: user.id);
     await _loadUser(
       user,
       preferredOrganisationId: organisationId,
@@ -440,17 +440,16 @@ class AppStateNotifier extends Notifier<AppState> {
     if (role == EmployeeRole.owner) {
       throw ArgumentError('An organisation owner cannot be assigned here.');
     }
-    await client.rpc(
-      'add_organisation_member',
-      params: {
-        'p_organisation_id': organisationId,
-        'p_login_identifier': loginIdentifier.contains('@')
-            ? cleanEmployeeEmail(loginIdentifier)
-            : cleanAccountId(loginIdentifier),
-        'p_role': role.name,
-        'p_employee_id': role == EmployeeRole.employee ? employeeId : null,
-      },
-    );
+    await ref
+        .read(organisationsRepositoryProvider)
+        .addMember(
+          organisationId: organisationId,
+          loginIdentifier: loginIdentifier.contains('@')
+              ? cleanEmployeeEmail(loginIdentifier)
+              : cleanAccountId(loginIdentifier),
+          role: role.name,
+          employeeId: role == EmployeeRole.employee ? employeeId : null,
+        );
     final user = client.auth.currentUser;
     if (user == null) throw const AuthException('Session expired.');
     await _loadUser(user, preferredOrganisationId: organisationId);
@@ -471,18 +470,6 @@ class AppStateNotifier extends Notifier<AppState> {
   }
 
   // ─── INTERNAL ───────────────────────────────────────────────────
-
-  Future<Map<String, dynamic>> _membershipFor(String organisationId) async {
-    final client = _requireSupabase();
-    final userId = client.auth.currentUser!.id;
-    final row = await client
-        .from('organisation_members')
-        .select('organisation_id, role, employee_id')
-        .eq('organisation_id', organisationId)
-        .eq('user_id', userId)
-        .single();
-    return row;
-  }
 
   Future<void> _loadUser(
     User user, {
@@ -530,27 +517,16 @@ class AppStateNotifier extends Notifier<AppState> {
     try {
       final client = _requireSupabase();
 
-      final memberships = await client
-          .from('organisation_members')
-          .select('organisation_id, role, employee_id')
-          .eq('user_id', user.id);
+      final repository = ref.read(organisationsRepositoryProvider);
+      final membershipRows = await repository.membershipsForUser(user.id);
       if (authGeneration != _authGeneration) return;
-      final membershipRows = List<Map<String, dynamic>>.from(memberships);
 
       final organisationIds = membershipRows
           .map((row) => row['organisation_id'] as String)
           .toList();
-      final organisations = organisationIds.isEmpty
-          ? <Map<String, dynamic>>[]
-          : List<Map<String, dynamic>>.from(
-              await client
-                  .from('organisations')
-                  .select()
-                  .inFilter('id', organisationIds),
-            );
-      final organisationModels = organisations
-          .map(_organisationFromRow)
-          .toList();
+      final organisationModels = await repository.organisationsByIds(
+        organisationIds,
+      );
 
       final selectedId =
           preferredOrganisationId ??
@@ -685,21 +661,6 @@ class AppStateNotifier extends Notifier<AppState> {
             : null,
       );
     }
-  }
-
-  Organisation _organisationFromRow(Map<String, dynamic> row) {
-    return Organisation(
-      id: row['id'] as String,
-      name: row['name'] as String,
-      currency: row['currency'] as String? ?? 'TND',
-      timezone: row['timezone'] as String? ?? 'Africa/Tunis',
-      ownerId: row['owner_id'] as String,
-      logoUrl: row['logo_url'] as String?,
-      address: row['address'] as String?,
-      phone: row['phone'] as String?,
-      status: row['status'] as String? ?? 'active',
-      createdAt: DateTime.tryParse(row['created_at'] as String? ?? ''),
-    );
   }
 
   Employee _employeeFromRow(Map<String, dynamic> row) {
