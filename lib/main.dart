@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:zone/app/app.dart';
 import 'package:zone/core/config/supabase_config.dart';
-import 'package:zone/core/services/push_notification_service.dart';
+import 'package:zone/services/push/push_notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

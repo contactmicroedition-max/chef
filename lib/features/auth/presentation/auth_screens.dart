@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:zone/features/auth/domain/auth_formatters.dart';
+import 'package:zone/features/auth/presentation/chef_logo.dart';
 import 'package:zone/providers/app_state.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -141,18 +142,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class SplashScreen extends StatelessWidget {
-  const SplashScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: Colors.white,
-      body: Center(child: CHEFLogo()),
     );
   }
 }
@@ -376,27 +365,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class CHEFLogo extends StatelessWidget {
-  const CHEFLogo({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 92,
-      height: 92,
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Icon(
-        Icons.restaurant_menu_rounded,
-        size: 44,
-        color: Theme.of(context).colorScheme.onPrimaryContainer,
       ),
     );
   }
