@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:zone/core/widgets/app_button.dart';
+import 'package:zone/core/widgets/widgets.dart';
 import 'package:zone/features/auth/domain/auth_formatters.dart';
 import 'package:zone/providers/app_state.dart';
 

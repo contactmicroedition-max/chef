@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:zone/core/utils/formatters.dart';
+import 'package:zone/core/widgets/widgets.dart';
 import 'package:zone/features/employees/domain/employee.dart';
 import 'package:zone/providers/app_state.dart';
 
@@ -71,14 +72,7 @@ class EmployeeSalariesScreen extends ConsumerWidget {
           return Card(
             margin: const EdgeInsets.only(bottom: 12),
             child: ExpansionTile(
-              leading: CircleAvatar(
-                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                child: Text(
-                  employee.name.isNotEmpty
-                      ? employee.name.substring(0, 1)
-                      : '?',
-                ),
-              ),
+              leading: EmployeeAvatar(name: employee.name),
               title: Text(employee.name),
               subtitle: Text(salaryLabel),
               childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),

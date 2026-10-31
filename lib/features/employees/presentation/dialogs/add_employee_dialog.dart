@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:zone/core/widgets/dialog_form_field.dart';
+import 'package:zone/core/widgets/widgets.dart';
 import 'package:zone/features/auth/domain/auth_formatters.dart';
 import 'package:zone/features/employees/domain/employee.dart';
 import 'package:zone/providers/app_state.dart';

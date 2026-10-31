@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:zone/core/widgets/widgets.dart';
 import 'package:zone/features/employees/domain/employee.dart';
 import 'package:zone/features/employees/presentation/dialogs/give_advance_dialog.dart';
 
@@ -14,12 +15,7 @@ class EmployeeCard extends StatelessWidget {
       child: Column(
         children: [
           ListTile(
-            leading: CircleAvatar(
-              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              child: Text(
-                employee.name.isNotEmpty ? employee.name.substring(0, 1) : '?',
-              ),
-            ),
+            leading: EmployeeAvatar(name: employee.name),
             title: Text(employee.name),
             subtitle: Text(
               '${employee.jobTitle} • ${employee.loginEmail ?? 'Legacy ID ${employee.loginId ?? ""}'}',
