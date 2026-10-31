@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:zone/core/config/supabase_config.dart';
-import 'package:zone/core/models/payroll.dart';
+import 'package:zone/features/payroll/domain/payroll.dart';
 
 class PayrollRepository {
   PayrollRepository(this._client);

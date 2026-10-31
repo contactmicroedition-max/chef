@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:zone/core/config/supabase_config.dart';
-import 'package:zone/core/utils/formatters.dart';
+import 'package:zone/features/auth/domain/auth_formatters.dart';
 
 class AuthRegistrationResult {
   const AuthRegistrationResult({

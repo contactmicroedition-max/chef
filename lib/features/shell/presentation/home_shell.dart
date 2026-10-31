@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:zone/core/models/attendance.dart';
-import 'package:zone/core/models/employee.dart';
 import 'package:zone/core/utils/formatters.dart';
+import 'package:zone/features/auth/domain/auth_formatters.dart';
+import 'package:zone/features/attendance/domain/attendance.dart';
+import 'package:zone/features/employees/domain/employee.dart';
 import 'package:zone/providers/app_state.dart';
 
 class HomeShellScreen extends ConsumerStatefulWidget {

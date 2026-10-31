@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:zone/core/config/supabase_config.dart';
-import 'package:zone/core/models/employee.dart';
+import 'package:zone/features/employees/domain/employee.dart';
 
 class EmployeesRepository {
   EmployeesRepository(this._client);

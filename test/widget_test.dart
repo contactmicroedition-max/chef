@@ -2,8 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:zone/app/app.dart';
-import 'package:zone/core/models/employee.dart';
-import 'package:zone/core/utils/formatters.dart';
+import 'package:zone/features/auth/domain/auth_formatters.dart';
+import 'package:zone/features/employees/domain/employee.dart';
 
 void main() {
   test('account IDs must contain exactly 8 digits', () {

@@ -4,17 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:zone/core/config/supabase_config.dart';
-import 'package:zone/core/models/attendance.dart';
-import 'package:zone/core/models/employee.dart';
-import 'package:zone/core/models/organisation.dart';
-import 'package:zone/core/models/payroll.dart';
 import 'package:zone/core/services/push_notification_service.dart';
-import 'package:zone/core/utils/formatters.dart';
 import 'package:zone/features/auth/data/auth_repository.dart';
+import 'package:zone/features/auth/domain/auth_formatters.dart';
 import 'package:zone/features/attendance/data/attendance_repository.dart';
+import 'package:zone/features/attendance/domain/attendance.dart';
 import 'package:zone/features/employees/data/employees_repository.dart';
+import 'package:zone/features/employees/domain/employee.dart';
 import 'package:zone/features/organisations/data/organisations_repository.dart';
+import 'package:zone/features/organisations/domain/organisation.dart';
 import 'package:zone/features/payroll/data/payroll_repository.dart';
+import 'package:zone/features/payroll/domain/payroll.dart';
 
 enum AuthStatus { unknown, authenticated, unauthenticated }
 
