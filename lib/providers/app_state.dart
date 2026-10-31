@@ -11,6 +11,7 @@ import 'package:zone/core/models/payroll.dart';
 import 'package:zone/core/services/push_notification_service.dart';
 import 'package:zone/core/utils/formatters.dart';
 import 'package:zone/features/auth/data/auth_repository.dart';
+import 'package:zone/features/employees/data/employees_repository.dart';
 import 'package:zone/features/organisations/data/organisations_repository.dart';
 
 enum AuthStatus { unknown, authenticated, unauthenticated }
@@ -328,7 +329,6 @@ class AppStateNotifier extends Notifier<AppState> {
     required double salaryAmount,
     required String password,
   }) async {
-    final client = _requireSupabase();
     final organisationId = state.selectedOrganisationId;
     if (organisationId == null) {
       throw StateError('Select an organisation before adding an employee.');
@@ -340,29 +340,21 @@ class AppStateNotifier extends Notifier<AppState> {
     }
     final email = cleanEmployeeEmail(loginEmail);
 
-    final response = await client.functions.invoke(
-      'create-employee',
-      body: {
-        'organisation_id': organisationId,
-        'name': name.trim(),
-        'login_email': email,
-        'job_title': jobTitle.trim(),
-        'pay_type': payType.name,
-        'salary_amount': salaryAmount,
-        'password': password,
-      },
-    );
-    final data = response.data;
-    if (data is! Map || data['login_email'] is! String) {
-      throw const FormatException(
-        'The employee account service returned an invalid response.',
-      );
-    }
-
-    final user = client.auth.currentUser;
+    final createdEmail = await ref
+        .read(employeesRepositoryProvider)
+        .createEmployee(
+          organisationId: organisationId,
+          name: name,
+          loginEmail: email,
+          jobTitle: jobTitle,
+          payType: payType,
+          salaryAmount: salaryAmount,
+          password: password,
+        );
+    final user = ref.read(authRepositoryProvider).currentUser;
     if (user == null) throw const AuthException('Session expired.');
     await _loadUser(user, preferredOrganisationId: organisationId);
-    return data['login_email'] as String;
+    return createdEmail;
   }
 
   // ─── ADVANCE ────────────────────────────────────────────────────
@@ -567,13 +559,9 @@ class AppStateNotifier extends Notifier<AppState> {
       final role = _parseRole(selectedMembership['role'] as String);
       final employeeId = selectedMembership['employee_id'] as String?;
 
-      final employeeRows = await client
-          .from('employees')
-          .select()
-          .eq('organisation_id', selectedId);
-      final employees = List<Map<String, dynamic>>.from(employeeRows)
-          .map(_employeeFromRow)
-          .toList();
+      final employees = await ref
+          .read(employeesRepositoryProvider)
+          .employeesForOrganisation(selectedId);
 
       List<AttendanceRecord> attendanceList = [];
       try {
@@ -663,27 +651,6 @@ class AppStateNotifier extends Notifier<AppState> {
     }
   }
 
-  Employee _employeeFromRow(Map<String, dynamic> row) {
-    return Employee(
-      id: row['id'] as String,
-      organisationId: row['organisation_id'] as String,
-      name: row['full_name'] as String,
-      jobTitle: row['job_title'] as String,
-      hourlyRate: (row['hourly_rate'] as num?)?.toDouble() ?? 0,
-      payType: row['pay_type'] == 'monthly'
-          ? EmployeePayType.monthly
-          : EmployeePayType.hourly,
-      monthlySalary: (row['monthly_salary'] as num?)?.toDouble(),
-      role: EmployeeRole.employee,
-      employmentStatus: _parseEmploymentStatus(
-        row['employment_status'] as String? ?? 'active',
-      ),
-      loginId: row['login_id'] as String?,
-      loginEmail: row['login_email'] as String?,
-      hireDate: DateTime.tryParse(row['hire_date'] as String? ?? ''),
-    );
-  }
-
   String? _loginIdForUser(User user) {
     final metadata = user.userMetadata;
     final loginId = metadata == null ? null : metadata['login_id'];
@@ -731,12 +698,6 @@ class AppStateNotifier extends Notifier<AppState> {
     'owner' => EmployeeRole.owner,
     'manager' => EmployeeRole.manager,
     _ => EmployeeRole.employee,
-  };
-
-  EmploymentStatus _parseEmploymentStatus(String status) => switch (status) {
-    'inactive' => EmploymentStatus.inactive,
-    'suspended' => EmploymentStatus.suspended,
-    _ => EmploymentStatus.active,
   };
 
   SupabaseClient _requireSupabase() {
