@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:zone/core/widgets/app_button.dart';
 import 'package:zone/features/auth/domain/auth_formatters.dart';
 import 'package:zone/providers/app_state.dart';
 
@@ -197,14 +198,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   ),
                 ],
                 const SizedBox(height: 16),
-                FilledButton(
+                AppButton(
                   onPressed: appState.isLoading ? null : _register,
-                  child: appState.isLoading
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Create account'),
+                  isLoading: appState.isLoading,
+                  child: const Text('Create account'),
                 ),
                 const SizedBox(height: 8),
                 Wrap(

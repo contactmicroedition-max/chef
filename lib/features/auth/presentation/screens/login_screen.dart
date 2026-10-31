@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:zone/features/auth/domain/auth_formatters.dart';
 import 'package:zone/features/auth/presentation/chef_logo.dart';
+import 'package:zone/core/widgets/app_button.dart';
 import 'package:zone/providers/app_state.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -111,15 +112,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ],
                   const SizedBox(height: 14),
-                  FilledButton.icon(
+                  AppButton(
                     onPressed: appState.isLoading ? null : _signIn,
-                    icon: appState.isLoading
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.login_rounded),
-                    label: Text(appState.isLoading ? 'Signing in…' : 'Sign in'),
+                    isLoading: appState.isLoading,
+                    icon: const Icon(Icons.login_rounded),
+                    child: Text(appState.isLoading ? 'Signing in…' : 'Sign in'),
                   ),
                   const SizedBox(height: 12),
                   Wrap(
