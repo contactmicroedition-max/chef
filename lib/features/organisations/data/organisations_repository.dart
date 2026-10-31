@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:zone/core/config/supabase_config.dart';
 import 'package:zone/features/organisations/domain/organisation.dart';
+import 'package:zone/features/organisations/domain/organisation_zone.dart';
 
 class OrganisationsRepository {
   OrganisationsRepository(this._client);
@@ -23,6 +24,86 @@ class OrganisationsRepository {
         'p_currency': currency,
       },
     );
+  }
+
+  Future<String> createOrganisationWithZone({
+    required String name,
+    String? address,
+    String? phone,
+    String? logoUrl,
+    required String currency,
+    required String timezone,
+    required OrganisationZone zone,
+  }) async {
+    final result = await _client.rpc(
+      'create_organisation_with_zone',
+      params: {
+        'p_name': name.trim(),
+        'p_address': _optionalText(address),
+        'p_phone': _optionalText(phone),
+        'p_logo_url': _optionalText(logoUrl),
+        'p_currency': currency,
+        'p_timezone': timezone,
+        'p_polygon': zone.toGeoJson(),
+      },
+    );
+    if (result is! String || result.isEmpty) {
+      throw StateError('Creating the organisation returned no id.');
+    }
+    return result;
+  }
+
+  Future<OrganisationZone?> getZone(String organisationId) async {
+    final result = await _client.rpc(
+      'get_organisation_zone_geojson',
+      params: {'p_organisation_id': organisationId},
+    );
+    if (result == null) return null;
+    if (result is! Map) {
+      throw const FormatException('The organisation zone response is invalid.');
+    }
+    return OrganisationZone.fromGeoJson(Map<String, dynamic>.from(result));
+  }
+
+  Future<void> updateZone({
+    required String organisationId,
+    required OrganisationZone zone,
+  }) {
+    return _client.rpc(
+      'update_organisation_zone',
+      params: {
+        'p_organisation_id': organisationId,
+        'p_polygon': zone.toGeoJson(),
+      },
+    );
+  }
+
+  Future<List<Organisation>> listMyOrganisations() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) {
+      throw StateError('A signed-in user is required to list organisations.');
+    }
+
+    final rows = await _client
+        .from('organisations')
+        .select()
+        .eq('owner_id', userId)
+        .order('created_at');
+    final zones = await _client
+        .from('organisation_zones')
+        .select('organisation_id');
+    final zonedOrganisationIds = List<Map<String, dynamic>>.from(zones)
+        .map((row) => row['organisation_id'] as String)
+        .toSet();
+
+    return List<Map<String, dynamic>>.from(rows)
+        .map(
+          (row) => _organisationFromRow(
+            row,
+            hasWorkZone: zonedOrganisationIds.contains(row['id']),
+          ),
+        )
+        .toList();
   }
 
   Future<List<Map<String, dynamic>>> membershipsForUser(String userId) async {
@@ -73,7 +154,10 @@ class OrganisationsRepository {
     );
   }
 
-  Organisation _organisationFromRow(Map<String, dynamic> row) {
+  Organisation _organisationFromRow(
+    Map<String, dynamic> row, {
+    bool hasWorkZone = false,
+  }) {
     return Organisation(
       id: row['id'] as String,
       name: row['name'] as String,
@@ -85,7 +169,13 @@ class OrganisationsRepository {
       phone: row['phone'] as String?,
       status: row['status'] as String? ?? 'active',
       createdAt: DateTime.tryParse(row['created_at'] as String? ?? ''),
+      hasWorkZone: hasWorkZone,
     );
+  }
+
+  String? _optionalText(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
   }
 }
 

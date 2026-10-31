@@ -10,6 +10,7 @@ class Organisation {
     this.phone,
     this.status = 'active',
     this.createdAt,
+    this.hasWorkZone = false,
     this.workHoursPerDay = 8,
     this.payrollDay = 30,
   });
@@ -24,6 +25,7 @@ class Organisation {
   final String ownerId;
   final String status;
   final DateTime? createdAt;
+  final bool hasWorkZone;
   final int workHoursPerDay;
   final int payrollDay;
 
@@ -38,6 +40,7 @@ class Organisation {
     String? ownerId,
     String? status,
     DateTime? createdAt,
+    bool? hasWorkZone,
     int? workHoursPerDay,
     int? payrollDay,
   }) {
@@ -52,6 +55,7 @@ class Organisation {
       phone: phone ?? this.phone,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
+      hasWorkZone: hasWorkZone ?? this.hasWorkZone,
       workHoursPerDay: workHoursPerDay ?? this.workHoursPerDay,
       payrollDay: payrollDay ?? this.payrollDay,
     );
