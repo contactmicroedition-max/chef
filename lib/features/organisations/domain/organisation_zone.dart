@@ -100,6 +100,32 @@ class OrganisationZone {
 
   bool get isValid => validationError == null;
 
+  bool containsPoint(LatLng point) {
+    if (points.length < 3) return false;
+    var isInside = false;
+    for (
+      var index = 0, previousIndex = points.length - 1;
+      index < points.length;
+      previousIndex = index++
+    ) {
+      final current = points[index];
+      final previous = points[previousIndex];
+      if (_pointOnSegment(point, previous, current)) return true;
+      final crossesLatitude =
+          (current.latitude > point.latitude) !=
+          (previous.latitude > point.latitude);
+      if (crossesLatitude) {
+        final crossingLongitude =
+            (previous.longitude - current.longitude) *
+                (point.latitude - current.latitude) /
+                (previous.latitude - current.latitude) +
+            current.longitude;
+        if (point.longitude < crossingLongitude) isInside = !isInside;
+      }
+    }
+    return isInside;
+  }
+
   static double _radians(double degrees) => degrees * math.pi / 180;
 
   static double _wrappedLongitudeDelta(double radians) {
@@ -158,5 +184,18 @@ class OrganisationZone {
         point.longitude <= math.max(a.longitude, b.longitude) + epsilon &&
         point.latitude >= math.min(a.latitude, b.latitude) - epsilon &&
         point.latitude <= math.max(a.latitude, b.latitude) + epsilon;
+  }
+
+  static bool _pointOnSegment(LatLng point, LatLng start, LatLng end) {
+    const epsilon = 1e-10;
+    final cross =
+        (point.latitude - start.latitude) * (end.longitude - start.longitude) -
+        (point.longitude - start.longitude) * (end.latitude - start.latitude);
+    if (cross.abs() > epsilon) return false;
+    return point.longitude >=
+            math.min(start.longitude, end.longitude) - epsilon &&
+        point.longitude <= math.max(start.longitude, end.longitude) + epsilon &&
+        point.latitude >= math.min(start.latitude, end.latitude) - epsilon &&
+        point.latitude <= math.max(start.latitude, end.latitude) + epsilon;
   }
 }

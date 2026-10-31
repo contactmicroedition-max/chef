@@ -61,7 +61,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     autofillHints: const [AutofillHints.username],
                     decoration: const InputDecoration(
                       labelText: 'Email, phone number, or employee ID',
-                      hintText: 'name@example.com, +21695125268, or ID',
+                      hintText: 'name@example.com or ID',
                       prefixIcon: Icon(Icons.person_outline),
                     ),
                     validator: (value) {

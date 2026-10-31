@@ -113,6 +113,7 @@ class AppStateNotifier extends Notifier<AppState> {
   bool _authListenerAttached = false;
   int _authGeneration = 0;
   String? _profileLoadUserId;
+  int? _profileLoadGeneration;
   Future<void>? _profileLoad;
 
   @override
@@ -142,6 +143,7 @@ class AppStateNotifier extends Notifier<AppState> {
             _authGeneration++;
             _profileLoad = null;
             _profileLoadUserId = null;
+            _profileLoadGeneration = null;
             state = AppState(
               authStatus: AuthStatus.unauthenticated,
               locale: state.locale,
@@ -423,7 +425,11 @@ class AppStateNotifier extends Notifier<AppState> {
 
   // ─── ATTENDANCE ─────────────────────────────────────────────────
 
-  Future<String?> recordEmployeeShift({required bool clockIn}) async {
+  Future<String?> recordEmployeeShift({
+    required bool clockIn,
+    double? latitude,
+    double? longitude,
+  }) async {
     final organisationId = state.selectedOrganisationId;
     if (state.currentRole != EmployeeRole.employee ||
         state.currentEmployeeId == null ||
@@ -433,7 +439,12 @@ class AppStateNotifier extends Notifier<AppState> {
 
     final result = await ref
         .read(attendanceRepositoryProvider)
-        .recordEmployeeShift(organisationId: organisationId, clockIn: clockIn);
+        .recordEmployeeShift(
+          organisationId: organisationId,
+          clockIn: clockIn,
+          latitude: latitude,
+          longitude: longitude,
+        );
     final user = ref.read(authRepositoryProvider).currentUser;
     if (user == null) throw const AuthException('Session expired.');
     await _loadUser(user, preferredOrganisationId: organisationId);
@@ -494,22 +505,27 @@ class AppStateNotifier extends Notifier<AppState> {
     bool completesAuthentication = false,
     int? authGeneration,
   }) {
-    if (_profileLoadUserId == user.id && _profileLoad != null) {
+    final generation = authGeneration ?? _authGeneration;
+    if (_profileLoadUserId == user.id &&
+        _profileLoadGeneration == generation &&
+        _profileLoad != null) {
       return _profileLoad!;
     }
     _profileLoadUserId = user.id;
+    _profileLoadGeneration = generation;
     final load = _loadUserProfile(
       user,
       preferredOrganisationId: preferredOrganisationId,
       preferredMembership: preferredMembership,
       completesAuthentication: completesAuthentication,
-      authGeneration: authGeneration ?? _authGeneration,
+      authGeneration: generation,
     );
     _profileLoad = load;
     return load.whenComplete(() {
       if (identical(_profileLoad, load)) {
         _profileLoad = null;
         _profileLoadUserId = null;
+        _profileLoadGeneration = null;
       }
     });
   }

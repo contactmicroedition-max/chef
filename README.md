@@ -39,16 +39,19 @@ flutter run
 
 ## Authentication and organisation roles
 
-Owners and employees sign in with an 8-digit ID and password. Owner signup asks
-for the owner's name, ID, password, and organisation name. The owner creates
-employee accounts by entering each employee's name, unique 8-digit ID,
-password, job title, and pay details. IDs are unique across the whole app so
-the app can identify an account from the ID alone.
+Owners sign in with an 8-digit ID and password. Owner signup asks for the
+owner's name, ID, password, and organisation name. When creating an employee,
+the owner enters the employee's name, login email, password, job title, and pay
+details. The email is generated from the employee and organisation names (for
+example, `john_smith@tunis-cafe.tn`) and can be edited. If an address is already
+in use, the app adds a number to make it unique. Employees sign in with that
+email and the password set by the owner; they do not need phone verification.
+The generated `.tn` address is an app login address, not necessarily a real
+mailbox that can receive messages.
 
-Supabase Auth uses a private, non-deliverable email alias internally to issue
-password sessions. The alias is not shown to users and is not stored in the
-public employee table. Do not remove the alias logic from Auth; it is what
-allows Supabase password authentication to work without users entering email.
+Supabase Auth confirms employee login addresses when their accounts are
+created, so employees can sign in without SMS or email confirmation. Owners
+continue to use the existing 8-digit ID login flow.
 
 Before using the new account flow, run the SQL files in Supabase Dashboard >
 SQL Editor in order. In the Supabase Dashboard for your project, open **SQL
@@ -60,9 +63,11 @@ into the query editor, and click **Run**. Run one file at a time in this order:
 [`supabase/migrations/004_employee_pay_types_and_phone_login.sql`](./supabase/migrations/004_employee_pay_types_and_phone_login.sql),
 [`supabase/migrations/005_normalize_employee_phone_ids.sql`](./supabase/migrations/005_normalize_employee_phone_ids.sql),
 [`supabase/migrations/007_create_employee_rpc.sql`](./supabase/migrations/007_create_employee_rpc.sql),
+[`supabase/migrations/008_id_based_accounts.sql`](./supabase/migrations/008_id_based_accounts.sql),
 and
-[`supabase/migrations/008_id_based_accounts.sql`](./supabase/migrations/008_id_based_accounts.sql).
-If migrations 001–007 are already applied, apply only migration 008. It removes
+[`supabase/migrations/009_employee_email_logins.sql`](./supabase/migrations/009_employee_email_logins.sql).
+If migrations 001–007 are already applied, apply migrations 008 and 009. If
+migration 008 has already been applied, apply only migration 009. Migration 008 removes
 `employees.email`, renames the employee phone field to `employees.login_id`,
 creates the private account-ID mapping, and updates the account-creation RPCs.
 Dropping `employees.email` permanently deletes values in that column, so
@@ -75,6 +80,13 @@ Owners should create new accounts through the new signup screen. Linked
 employee accounts with 8-digit IDs are imported into the ID registry; accounts
 created through older login methods may need their password/account reset by
 an administrator.
+Migration 009 adds the employee login email field and updates employee account
+storage and manager assignment to accept email addresses while preserving
+legacy ID sign-in. Deploy the employee account Edge Function after applying the
+migration: `supabase functions deploy create-employee`. It creates employee
+users through Supabase Auth's supported admin API, confirms the login email,
+then links the employee profile and membership. Deploy the updated function
+each time its source changes.
 
 Hourly salary is calculated as the hourly rate times hours recorded in the
 current calendar month. Monthly-salary employees receive the fixed amount

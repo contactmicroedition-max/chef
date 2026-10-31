@@ -208,6 +208,7 @@ Deno.serve(async (request: Request) => {
   }
 
   const callerClient = createClient(supabaseUrl, publishableKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { autoRefreshToken: false, persistSession: false },
   });
   const adminClient = createClient(supabaseUrl, secretKey, {
@@ -236,11 +237,25 @@ Deno.serve(async (request: Request) => {
   const body = bodyValue as Record<string, unknown>;
   const organisationId = body.organisation_id;
   const action = body.action;
+  const coordinates =
+    typeof body.latitude === "number" && typeof body.longitude === "number"
+      ? { latitude: body.latitude, longitude: body.longitude }
+      : null;
   if (
     typeof organisationId !== "string" ||
-    (action !== "clock_in" && action !== "clock_out")
+    (action !== "clock_in" && action !== "clock_out") ||
+    (action === "clock_in" &&
+      (!coordinates ||
+        !Number.isFinite(coordinates.latitude) ||
+        !Number.isFinite(coordinates.longitude) ||
+        coordinates.latitude < -90 ||
+        coordinates.latitude > 90 ||
+        coordinates.longitude < -180 ||
+        coordinates.longitude > 180))
   ) {
-    return respond(400, { error: "Provide an organisation and valid clock action." });
+    return respond(400, {
+      error: "Provide an organisation, valid clock action, and clock-in location.",
+    });
   }
 
   const { data: membership, error: membershipError } = await adminClient
@@ -298,6 +313,42 @@ Deno.serve(async (request: Request) => {
   }
   if (action === "clock_out" && !openShift) {
     return respond(409, { error: "There is no open shift to clock out from." });
+  }
+
+  if (action === "clock_in") {
+    if (!coordinates) {
+      return respond(400, { error: "Current location is required to clock in." });
+    }
+    const { data: zoneStatus, error: zoneError } = await callerClient.rpc(
+      "get_employee_work_zone_status",
+      {
+        p_organisation_id: organisationId,
+        p_latitude: coordinates.latitude,
+        p_longitude: coordinates.longitude,
+      },
+    );
+    if (zoneError) {
+      console.error("Could not verify employee location against work zone:", zoneError);
+      if (zoneError.message.includes("no work zone configured")) {
+        return respond(409, {
+          error: "Your organisation has no work zone configured. Contact the owner.",
+        });
+      }
+      return respond(500, { error: "Could not verify your work-zone location." });
+    }
+    if (
+      typeof zoneStatus !== "object" ||
+      zoneStatus === null ||
+      !("is_inside" in zoneStatus)
+    ) {
+      console.error("Work-zone verification returned an invalid response.");
+      return respond(500, { error: "Could not verify your work-zone location." });
+    }
+    if (zoneStatus.is_inside !== true) {
+      return respond(403, {
+        error: "You must be inside your organisation's work zone to clock in.",
+      });
+    }
   }
 
   const now = new Date();

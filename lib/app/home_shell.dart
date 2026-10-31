@@ -181,9 +181,16 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen> {
           ),
         ),
       ),
-      body: state.isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : IndexedStack(index: _selectedIndex, children: pages),
+      body: Stack(
+        children: [
+          IndexedStack(index: _selectedIndex, children: pages),
+          if (state.isLoading)
+            const Align(
+              alignment: Alignment.topCenter,
+              child: LinearProgressIndicator(),
+            ),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) =>

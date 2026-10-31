@@ -59,4 +59,22 @@ void main() {
     expect(zone.isValid, isFalse);
     expect(zone.validationError, contains('must not cross'));
   });
+
+  test(
+    'point-in-polygon includes boundary points and excludes outside points',
+    () {
+      const zone = OrganisationZone(
+        points: [
+          LatLng(36.8, 10.1),
+          LatLng(36.8, 10.2),
+          LatLng(36.9, 10.2),
+          LatLng(36.9, 10.1),
+        ],
+      );
+
+      expect(zone.containsPoint(const LatLng(36.85, 10.15)), isTrue);
+      expect(zone.containsPoint(const LatLng(36.8, 10.15)), isTrue);
+      expect(zone.containsPoint(const LatLng(37, 10.15)), isFalse);
+    },
+  );
 }

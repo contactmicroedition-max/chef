@@ -87,8 +87,8 @@ Deno.serve(async (request: Request) => {
 
   const organisationId = body.organisation_id;
   const name = typeof body.name === "string" ? body.name.trim() : "";
-  const loginId = typeof body.login_id === "string"
-    ? body.login_id.trim()
+  const requestedEmail = typeof body.login_email === "string"
+    ? body.login_email.trim().toLowerCase()
     : "";
 
   const jobTitle = typeof body.job_title === "string"
@@ -101,7 +101,7 @@ Deno.serve(async (request: Request) => {
   if (
     typeof organisationId !== "string" ||
     !name ||
-    !/^\d{8}$/.test(loginId) ||
+    !/^[a-z0-9._%+-]+@([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(requestedEmail) ||
     !jobTitle ||
     (payType !== "hourly" && payType !== "monthly") ||
     !Number.isFinite(salaryAmount) ||
@@ -110,7 +110,7 @@ Deno.serve(async (request: Request) => {
   ) {
     return respond(400, {
       error:
-        "Provide an organisation, name, 8-digit ID, job title, valid pay details, and a password of at least 6 characters.",
+        "Provide an organisation, name, valid login email, job title, valid pay details, and a password of at least 6 characters.",
     });
   }
 
@@ -129,19 +129,34 @@ Deno.serve(async (request: Request) => {
     return respond(403, { error: "Only the organisation owner can create employee accounts." });
   }
 
-  // Create auth user with email_confirm: true so NO verification is ever needed!
-  const loginEmail = `id-${loginId}@chef.local`;
-  const { data: authData, error: authError } = await adminClient.auth.admin
-    .createUser({
+  const [localPart, domain] = requestedEmail.split("@");
+  let loginEmail = requestedEmail;
+  let authUser: { id: string } | null = null;
+  for (let suffix = 1; suffix <= 1000; suffix++) {
+    if (suffix > 1) loginEmail = `${localPart}${suffix}@${domain}`;
+    const { data, error } = await adminClient.auth.admin.createUser({
       email: loginEmail,
       password,
       email_confirm: true,
-      user_metadata: { full_name: name, login_id: loginId },
+      user_metadata: { full_name: name, login_email: loginEmail },
     });
-
-  if (authError || !authData.user) {
-    return respond(400, {
-      error: authError?.message ?? "Could not create the employee login.",
+    if (!error && data.user) {
+      authUser = data.user;
+      break;
+    }
+    const isDuplicateEmail =
+      error?.code === "email_exists" ||
+      /already (?:been )?(?:registered|exists)/i.test(error?.message ?? "");
+    if (!isDuplicateEmail) {
+      console.error("Could not create employee Auth user:", error);
+      return respond(400, {
+        error: error?.message ?? "Could not create the employee login.",
+      });
+    }
+  }
+  if (!authUser) {
+    return respond(409, {
+      error: "Could not generate an available employee email address.",
     });
   }
 
@@ -152,7 +167,7 @@ Deno.serve(async (request: Request) => {
       .insert({
         organisation_id: organisationId,
         full_name: name,
-        login_id: loginId,
+        login_email: loginEmail,
         job_title: jobTitle,
         hourly_rate: payType === "hourly" ? salaryAmount : 0,
         pay_type: payType,
@@ -167,29 +182,19 @@ Deno.serve(async (request: Request) => {
     }
     employeeId = employee.id;
 
-    const { error: accountIdError } = await adminClient
-      .from("account_login_ids")
-      .insert({ login_id: loginId, user_id: authData.user.id });
-    if (accountIdError) throw accountIdError;
-
     const { error: linkError } = await adminClient
       .from("organisation_members")
       .insert({
         organisation_id: organisationId,
-        user_id: authData.user.id,
+        user_id: authUser.id,
         role: "employee",
         employee_id: employeeId,
       });
 
     if (linkError) throw linkError;
-    return respond(201, { employee_id: employeeId, login_id: loginId });
+    return respond(201, { employee_id: employeeId, login_email: loginEmail });
   } catch (error) {
     const cleanupErrors: string[] = [];
-    const { error: deleteLoginIdError } = await adminClient
-      .from("account_login_ids")
-      .delete()
-      .eq("user_id", authData.user.id);
-    if (deleteLoginIdError) cleanupErrors.push(deleteLoginIdError.message);
     if (employeeId) {
       const { error: deleteEmployeeError } = await adminClient
         .from("employees")
@@ -200,7 +205,7 @@ Deno.serve(async (request: Request) => {
       }
     }
     const { error: deleteUserError } = await adminClient.auth.admin
-      .deleteUser(authData.user.id);
+      .deleteUser(authUser.id);
     if (deleteUserError) cleanupErrors.push(deleteUserError.message);
     if (cleanupErrors.length > 0) {
       console.error("Employee creation rollback failed:", cleanupErrors);
