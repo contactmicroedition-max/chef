@@ -10,6 +10,7 @@ import 'package:zone/core/models/organisation.dart';
 import 'package:zone/core/models/payroll.dart';
 import 'package:zone/core/services/push_notification_service.dart';
 import 'package:zone/core/utils/formatters.dart';
+import 'package:zone/features/auth/data/auth_repository.dart';
 
 enum AuthStatus { unknown, authenticated, unauthenticated }
 
@@ -117,7 +118,7 @@ class AppStateNotifier extends Notifier<AppState> {
 
     if (!_authListenerAttached) {
       _authListenerAttached = true;
-      client.auth.onAuthStateChange.listen((data) {
+      ref.read(authRepositoryProvider).authStateChanges.listen((data) {
         switch (data.event) {
           case AuthChangeEvent.signedIn:
             final user = data.session?.user;
@@ -147,7 +148,8 @@ class AppStateNotifier extends Notifier<AppState> {
     }
 
     final session =
-        ref.read(supabaseInitialSessionProvider) ?? client.auth.currentSession;
+        ref.read(supabaseInitialSessionProvider) ??
+        ref.read(authRepositoryProvider).currentSession;
     if (session == null) {
       return const AppState(authStatus: AuthStatus.unauthenticated);
     }
@@ -165,58 +167,11 @@ class AppStateNotifier extends Notifier<AppState> {
 
   /// Signs in with an email address, Supabase phone number, or legacy employee ID.
   Future<void> signIn(String identifier, String password) async {
-    final client = _requireSupabase();
+    final repository = ref.read(authRepositoryProvider);
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final trimmed = identifier.trim();
-      AuthResponse? response;
-      Future<void> signInWithLegacyId(String employeeId) async {
-        final aliases = [
-          if (RegExp(r'^\d{8}$').hasMatch(employeeId))
-            accountLoginEmail(employeeId),
-          employeeLoginEmail(employeeId),
-          'employee-$employeeId@employee-login.invalid',
-        ];
-        AuthException? lastAuthError;
-        for (final alias in aliases) {
-          try {
-            response = await client.auth.signInWithPassword(
-              email: alias,
-              password: password,
-            );
-            return;
-          } on AuthException catch (error) {
-            lastAuthError = error;
-          }
-        }
-        throw lastAuthError!;
-      }
-
-      if (trimmed.contains('@')) {
-        response = await client.auth.signInWithPassword(
-          email: trimmed.toLowerCase(),
-          password: password,
-        );
-      } else if (looksLikePhoneNumber(trimmed)) {
-        try {
-          response = await client.auth.signInWithPassword(
-            phone: normalizeAuthPhone(trimmed),
-            password: password,
-          );
-        } on AuthException catch (error) {
-          final msg = error.message.toLowerCase();
-          if (!RegExp(r'^\d{8}$').hasMatch(trimmed) ||
-              (!msg.contains('invalid') && !msg.contains('credentials'))) {
-            rethrow;
-          }
-          await signInWithLegacyId(cleanEmployeeId(trimmed));
-        }
-      } else {
-        final empId = cleanEmployeeId(trimmed);
-        await signInWithLegacyId(empId);
-      }
-
-      final user = response?.user;
+      final response = await repository.signIn(identifier, password);
+      final user = response.user;
       if (user == null) {
         throw const AuthException('Authentication returned no user.');
       }
@@ -248,81 +203,26 @@ class AppStateNotifier extends Notifier<AppState> {
     String organisationName = '',
     required String password,
   }) async {
-    final client = _requireSupabase();
+    final repository = ref.read(authRepositoryProvider);
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final trimmedIdentifier = identifier.trim();
-      if (RegExp(r'^\d{8}$').hasMatch(trimmedIdentifier)) {
-        if (organisationName.trim().isEmpty) {
-          throw const FormatException(
-            'Enter an organisation name for an 8-digit ID account.',
-          );
-        }
-        await client.rpc(
-          'create_owner_account',
-          params: {
-            'p_name': name.trim(),
-            'p_login_id': cleanAccountId(trimmedIdentifier),
-            'p_password': password,
-            'p_organisation_name': organisationName.trim(),
-          },
+      final result = await repository.register(
+        name: name,
+        identifier: identifier,
+        organisationName: organisationName,
+        password: password,
+      );
+      if (result.errorMessage != null) {
+        state = state.copyWith(
+          isLoading: false,
+          errorMessage: result.errorMessage,
         );
-        final response = await client.auth.signInWithPassword(
-          email: accountLoginEmail(trimmedIdentifier),
-          password: password,
-        );
-        final user = response.user;
-        if (user == null) {
-          throw const AuthException(
-            'Account created but sign-in returned no user.',
-          );
-        }
+      }
+      final user = result.authenticatedUser;
+      if (user != null) {
         await _loadUser(user, completesAuthentication: true);
-        return null;
       }
-
-      final isEmail = trimmedIdentifier.contains('@');
-      final normalizedIdentifier = isEmail
-          ? trimmedIdentifier.toLowerCase()
-          : normalizeAuthPhone(trimmedIdentifier);
-      final response = isEmail
-          ? await client.auth.signUp(
-              email: normalizedIdentifier,
-              password: password,
-              data: {'full_name': name.trim()},
-            )
-          : await client.auth.signUp(
-              phone: normalizedIdentifier,
-              password: password,
-              data: {'full_name': name.trim()},
-            );
-      if (response.user == null) {
-        throw const AuthException('Registration returned no user.');
-      }
-      if (response.session != null) {
-        await _loadUser(response.user!, completesAuthentication: true);
-      } else {
-        try {
-          final loginRes = isEmail
-              ? await client.auth.signInWithPassword(
-                  email: normalizedIdentifier,
-                  password: password,
-                )
-              : await client.auth.signInWithPassword(
-                  phone: normalizedIdentifier,
-                  password: password,
-                );
-          if (loginRes.user != null) {
-            await _loadUser(loginRes.user!, completesAuthentication: true);
-          }
-        } on AuthException catch (_) {
-          state = state.copyWith(
-            isLoading: false,
-            errorMessage: "Compte créé. Supabase exige la confirmation d'email : désactivez 'Confirm email' dans Supabase (Authentication > Providers > Email) ou exécutez le script SQL.",
-          );
-        }
-      }
-      return response;
+      return result.response;
     } on AuthException catch (error) {
       state = state.copyWith(isLoading: false, errorMessage: error.message);
       rethrow;
@@ -336,13 +236,12 @@ class AppStateNotifier extends Notifier<AppState> {
     required String phone,
     required String token,
   }) async {
-    final client = _requireSupabase();
+    final repository = ref.read(authRepositoryProvider);
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final response = await client.auth.verifyOTP(
-        phone: normalizeAuthPhone(phone),
+      final response = await repository.verifyPhoneSignup(
+        phone: phone,
         token: token.trim(),
-        type: OtpType.sms,
       );
       final user = response.user;
       if (user == null || response.session == null) {
@@ -361,13 +260,11 @@ class AppStateNotifier extends Notifier<AppState> {
   }
 
   Future<void> resetPassword(String email) async {
-    final client = _requireSupabase();
-    await client.auth.resetPasswordForEmail(email.trim());
+    await ref.read(authRepositoryProvider).resetPassword(email);
   }
 
   Future<void> signOut() async {
-    final client = _requireSupabase();
-    await client.auth.signOut();
+    await ref.read(authRepositoryProvider).signOut();
     _authGeneration++;
     state = AppState(
       authStatus: AuthStatus.unauthenticated,
