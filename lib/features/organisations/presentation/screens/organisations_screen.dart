@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:zone/core/widgets/paginated_list.dart';
 import 'package:zone/features/employees/domain/employee.dart';
 import 'package:zone/features/organisations/data/organisations_repository.dart';
 import 'package:zone/features/organisations/domain/organisation.dart';
@@ -97,37 +98,41 @@ class _OrganisationsScreenState extends ConsumerState<OrganisationsScreen> {
                 ],
               );
             }
-            return ListView.separated(
+            return ListView(
               padding: const EdgeInsets.all(16),
-              itemCount: organisations.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final organisation = organisations[index];
-                return Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.business_rounded),
-                    title: Text(organisation.name),
-                    subtitle: Text(
-                      '${organisation.status} · ${organisation.hasWorkZone ? 'Work zone set' : 'Work zone missing'}',
-                    ),
-                    trailing: Icon(
-                      organisation.hasWorkZone
-                          ? Icons.check_circle_rounded
-                          : Icons.warning_amber_rounded,
-                      color: organisation.hasWorkZone
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.error,
-                    ),
-                    onTap: () async {
-                      await context.push(
-                        '/organisations/${organisation.id}/zone',
-                        extra: organisation,
-                      );
-                      if (mounted) await _refresh();
-                    },
-                  ),
-                );
-              },
+              children: [
+                PaginatedList(
+                  items: organisations,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 12),
+                  itemBuilder: (context, organisation, index) {
+                    return Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.business_rounded),
+                        title: Text(organisation.name),
+                        subtitle: Text(
+                          '${organisation.status} · ${organisation.hasWorkZone ? 'Work zone set' : 'Work zone missing'}',
+                        ),
+                        trailing: Icon(
+                          organisation.hasWorkZone
+                              ? Icons.check_circle_rounded
+                              : Icons.warning_amber_rounded,
+                          color: organisation.hasWorkZone
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.error,
+                        ),
+                        onTap: () async {
+                          await context.push(
+                            '/organisations/${organisation.id}/zone',
+                            extra: organisation,
+                          );
+                          if (mounted) await _refresh();
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ],
             );
           },
         ),

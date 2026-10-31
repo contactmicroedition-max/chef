@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:zone/core/utils/formatters.dart';
+import 'package:zone/core/widgets/paginated_list.dart';
 import 'package:zone/features/attendance/presentation/widgets/attendance_card.dart';
 import 'package:zone/features/employees/domain/employee.dart';
 import 'package:zone/providers/app_state.dart';
@@ -104,7 +105,11 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             ),
           )
         else
-          ...records.map((record) => AttendanceCard(record: record)),
+          PaginatedList(
+            items: records,
+            itemBuilder: (context, record, index) =>
+                AttendanceCard(record: record),
+          ),
       ],
     );
   }

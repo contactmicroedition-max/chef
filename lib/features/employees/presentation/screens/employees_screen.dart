@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:zone/core/widgets/paginated_list.dart';
 import 'package:zone/features/employees/domain/employee.dart';
 import 'package:zone/features/employees/presentation/dialogs/add_employee_dialog.dart';
 import 'package:zone/features/employees/presentation/widgets/employee_card.dart';
@@ -58,7 +59,11 @@ class EmployeesScreen extends ConsumerWidget {
             ),
           )
         else
-          ...employees.map((employee) => EmployeeCard(employee: employee)),
+          PaginatedList(
+            items: employees,
+            itemBuilder: (context, employee, index) =>
+                EmployeeCard(employee: employee),
+          ),
       ],
     );
   }
