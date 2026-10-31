@@ -5,7 +5,7 @@ import 'package:zone/features/auth/presentation/screens/login_screen.dart';
 import 'package:zone/features/auth/presentation/screens/register_screen.dart';
 import 'package:zone/features/auth/presentation/screens/splash_screen.dart';
 import 'package:zone/features/organisations/presentation/screens/create_organisation_screen.dart';
-import 'package:zone/features/shell/presentation/home_shell.dart';
+import 'package:zone/app/home_shell.dart';
 import 'package:zone/providers/app_state.dart';
 
 final _routerKey = GlobalKey<NavigatorState>();
