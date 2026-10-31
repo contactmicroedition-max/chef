@@ -193,6 +193,9 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
+        labelBehavior: isWorker
+            ? NavigationDestinationLabelBehavior.alwaysShow
+            : NavigationDestinationLabelBehavior.onlyShowSelected,
         onDestinationSelected: (index) =>
             setState(() => _selectedIndex = index),
         destinations: destinations,
