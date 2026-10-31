@@ -9,46 +9,35 @@ import 'package:zone/providers/app_state.dart';
 final _routerKey = GlobalKey<NavigatorState>();
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  final appState = ref.watch(appStateProvider);
+  final refreshListenable = _AuthStatusRefreshListenable();
+  ref.listen(
+    appStateProvider.select((appState) => appState.authStatus),
+    (previous, next) => refreshListenable.refresh(),
+  );
 
-  return GoRouter(
+  final router = GoRouter(
     navigatorKey: _routerKey,
-    initialLocation: '/login',
+    initialLocation: '/splash',
+    refreshListenable: refreshListenable,
     redirect: (context, state) {
-      final isAuthRoute =
-          state.matchedLocation == '/login' ||
-          state.matchedLocation == '/register';
-
-      // While loading, don't redirect — let the current page stay visible.
-      if (appState.isLoading) return null;
-
-      // Not authenticated → force login.
-      if (!appState.isAuthenticated && !isAuthRoute) {
-        return '/login';
+      final authStatus = ref.read(appStateProvider).authStatus;
+      if (authStatus == AuthStatus.unknown) {
+        return state.matchedLocation == '/splash' ? null : '/splash';
       }
-
-      // Authenticated
-      if (appState.isAuthenticated) {
-        // No organisations yet → go to setup.
-        if (appState.organisations.isEmpty &&
-            state.matchedLocation != '/org-setup') {
-          return '/org-setup';
-        }
-
-        // Has organisations but on setup → go home.
-        if (appState.organisations.isNotEmpty &&
-            state.matchedLocation == '/org-setup') {
-          return '/home';
-        }
-
-        // Already authenticated but on an auth page → go home.
-        if (isAuthRoute) {
-          return '/home';
-        }
+      if (authStatus == AuthStatus.unauthenticated) {
+        return state.matchedLocation == '/login' ? null : '/login';
+      }
+      if (state.matchedLocation == '/login' ||
+          state.matchedLocation == '/splash') {
+        return '/home';
       }
       return null;
     },
     routes: [
+      GoRoute(
+        path: '/splash',
+        builder: (context, state) => const SplashScreen(),
+      ),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(
         path: '/register',
@@ -64,4 +53,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
     ],
   );
+  ref.onDispose(() {
+    router.dispose();
+    refreshListenable.dispose();
+  });
+  return router;
 });
+
+class _AuthStatusRefreshListenable extends ChangeNotifier {
+  void refresh() => notifyListeners();
+}

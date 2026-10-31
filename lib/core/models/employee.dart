@@ -16,6 +16,7 @@ class Employee {
     required this.role,
     required this.employmentStatus,
     this.loginId,
+    this.loginEmail,
     this.hireDate,
   });
 
@@ -29,6 +30,7 @@ class Employee {
   final EmployeeRole role;
   final EmploymentStatus employmentStatus;
   final String? loginId;
+  final String? loginEmail;
   final DateTime? hireDate;
 
   double salaryForHours(double hours) {
@@ -48,6 +50,7 @@ class Employee {
     EmployeeRole? role,
     EmploymentStatus? employmentStatus,
     String? loginId,
+    String? loginEmail,
     DateTime? hireDate,
   }) {
     return Employee(
@@ -61,6 +64,7 @@ class Employee {
       role: role ?? this.role,
       employmentStatus: employmentStatus ?? this.employmentStatus,
       loginId: loginId ?? this.loginId,
+      loginEmail: loginEmail ?? this.loginEmail,
       hireDate: hireDate ?? this.hireDate,
     );
   }

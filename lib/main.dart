@@ -13,6 +13,7 @@ Future<void> main() async {
 
   await PushNotificationService.initializeForCurrentPlatform();
 
+  SupabaseConfig.initialSession = null;
   final supabaseUrl = dotenv.env['SUPABASE_URL'];
   final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
 
@@ -25,6 +26,8 @@ Future<void> main() async {
       publishableKey: supabaseAnonKey,
     );
     SupabaseConfig.client = Supabase.instance.client;
+    SupabaseConfig.initialSession =
+        Supabase.instance.client.auth.currentSession;
   } else {
     debugPrint(
       'Supabase configuration is missing. Set SUPABASE_URL and SUPABASE_ANON_KEY in .env',

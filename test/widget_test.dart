@@ -20,6 +20,26 @@ void main() {
     expect(() => cleanEmployeeId('ab'), throwsA(isA<FormatException>()));
   });
 
+  test(
+    'employee login emails are generated from names and can be suffixed',
+    () {
+      expect(
+        employeeEmailAddress('John Smith', 'Tunis Cafe'),
+        'john_smith@tunis-cafe.tn',
+      );
+      expect(
+        employeeEmailAddress('John Smith', 'Tunis Cafe', suffix: 2),
+        'john_smith2@tunis-cafe.tn',
+      );
+      expect(employeeEmailAddress('---', '---'), 'employee@organisation.tn');
+      expect(cleanEmployeeEmail(' Worker@Tunis.tn '), 'worker@tunis.tn');
+      expect(
+        () => cleanEmployeeEmail('not an email'),
+        throwsA(isA<FormatException>()),
+      );
+    },
+  );
+
   test('Supabase login alias remains internal to the app', () {
     expect(accountLoginEmail('95125268'), 'id-95125268@chef.local');
     expect(loginIdFromAuthEmail('id-95125268@chef.local'), '95125268');

@@ -534,19 +534,40 @@ class AddEmployeeDialog extends ConsumerStatefulWidget {
 class _AddEmployeeDialogState extends ConsumerState<AddEmployeeDialog> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
-  final _empId = TextEditingController();
+  final _loginEmail = TextEditingController();
   final _jobTitle = TextEditingController();
   final _salaryAmount = TextEditingController();
   final _password = TextEditingController();
   String? _errorMessage;
   bool _saving = false;
   bool _obscurePassword = true;
+  bool _emailEdited = false;
   EmployeePayType _payType = EmployeePayType.hourly;
+
+  void _updateGeneratedEmail(String name, String organisationName) {
+    if (_emailEdited) return;
+    final baseEmail = employeeEmailAddress(name, organisationName);
+    var email = baseEmail;
+    var suffix = 2;
+    final existingEmails = ref
+        .read(appStateProvider)
+        .employees
+        .map((employee) => employee.loginEmail?.toLowerCase())
+        .whereType<String>()
+        .toSet();
+    while (existingEmails.contains(email)) {
+      email = employeeEmailAddress(name, organisationName, suffix: suffix++);
+    }
+    _loginEmail.value = TextEditingValue(
+      text: email,
+      selection: TextSelection.collapsed(offset: email.length),
+    );
+  }
 
   @override
   void dispose() {
     _name.dispose();
-    _empId.dispose();
+    _loginEmail.dispose();
     _jobTitle.dispose();
     _salaryAmount.dispose();
     _password.dispose();
@@ -560,16 +581,17 @@ class _AddEmployeeDialogState extends ConsumerState<AddEmployeeDialog> {
       _errorMessage = null;
     });
     try {
-      await ref
+      final createdLoginEmail = await ref
           .read(appStateProvider.notifier)
           .createEmployee(
             name: _name.text,
-            empId: _empId.text,
+            loginEmail: _loginEmail.text,
             jobTitle: _jobTitle.text,
             payType: _payType,
             salaryAmount: double.parse(_salaryAmount.text),
             password: _password.text,
           );
+      _loginEmail.text = createdLoginEmail;
       if (mounted) Navigator.pop(context);
     } catch (error) {
       if (mounted) setState(() => _errorMessage = error.toString());
@@ -588,21 +610,29 @@ class _AddEmployeeDialogState extends ConsumerState<AddEmployeeDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _dialogField(_name, 'Full name'),
               TextFormField(
-                controller: _empId,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Employee ID (8 digits)',
-                  hintText: '95125268',
-                  helperText: 'This ID is used to sign in.',
+                controller: _name,
+                decoration: const InputDecoration(labelText: 'Full name'),
+                onChanged: (name) => _updateGeneratedEmail(
+                  name,
+                  ref.read(appStateProvider).selectedOrganisation?.name ?? '',
                 ),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Enter a name'
+                    : null,
+              ),
+              TextFormField(
+                controller: _loginEmail,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Employee login email',
+                  helperText:
+                      'Generated from the employee and organisation names.',
+                ),
+                onChanged: (_) => _emailEdited = true,
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Enter an employee ID';
-                  }
                   try {
-                    cleanAccountId(value);
+                    cleanEmployeeEmail(value ?? '');
                     return null;
                   } on FormatException catch (error) {
                     return error.message;
@@ -668,7 +698,7 @@ class _AddEmployeeDialogState extends ConsumerState<AddEmployeeDialog> {
               ),
               const SizedBox(height: 8),
               Text(
-                'The employee signs in with this ID and the password you set.',
+                'The employee signs in with this email and the password you set.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               if (_errorMessage != null) ...[
@@ -727,7 +757,7 @@ class _AssignRoleDialogState extends ConsumerState<AssignRoleDialog> {
       await ref
           .read(appStateProvider.notifier)
           .assignOrganisationRole(
-            loginId: _loginId.text,
+            loginIdentifier: _loginId.text,
             role: EmployeeRole.manager,
           );
       if (mounted) Navigator.pop(context);
@@ -749,9 +779,17 @@ class _AssignRoleDialogState extends ConsumerState<AssignRoleDialog> {
           children: [
             _dialogField(
               _loginId,
-              'Account ID (8 digits)',
-              keyboardType: TextInputType.number,
+              'Employee email or legacy ID',
+              keyboardType: TextInputType.emailAddress,
               validator: (value) {
+                if (value != null && value.trim().contains('@')) {
+                  try {
+                    cleanEmployeeEmail(value);
+                    return null;
+                  } on FormatException catch (error) {
+                    return error.message;
+                  }
+                }
                 try {
                   cleanAccountId(value ?? '');
                   return null;
@@ -825,7 +863,7 @@ class EmployeeCard extends StatelessWidget {
             ),
             title: Text(employee.name),
             subtitle: Text(
-              '${employee.jobTitle} • ID ${employee.loginId ?? ""}',
+              '${employee.jobTitle} • ${employee.loginEmail ?? 'Legacy ID ${employee.loginId ?? ""}'}',
             ),
             trailing: Chip(label: Text(employee.employmentStatus.name)),
           ),
@@ -1255,7 +1293,12 @@ class SettingsScreen extends ConsumerWidget {
             children: [
               ListTile(
                 leading: const Icon(Icons.person_rounded),
-                title: Text('ID ${state.currentUserLoginId ?? '—'}'),
+                title: Text(
+                  state.currentRole == EmployeeRole.employee &&
+                          state.currentUserLoginId == null
+                      ? 'Email ${state.currentUserEmail ?? '—'}'
+                      : 'ID ${state.currentUserLoginId ?? '—'}',
+                ),
                 subtitle: Text('Role: ${state.currentRole?.name ?? 'member'}'),
               ),
               const Divider(height: 1),

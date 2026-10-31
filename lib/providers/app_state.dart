@@ -11,6 +11,8 @@ import 'package:zone/core/models/payroll.dart';
 import 'package:zone/core/services/push_notification_service.dart';
 import 'package:zone/core/utils/formatters.dart';
 
+enum AuthStatus { unknown, authenticated, unauthenticated }
+
 class AppState {
   const AppState({
     this.organisations = const [],
@@ -18,13 +20,14 @@ class AppState {
     this.attendance = const [],
     this.advances = const [],
     this.payments = const [],
-    this.isAuthenticated = false,
+    this.authStatus = AuthStatus.unknown,
     this.isLoading = false,
     this.locale = const Locale('fr'),
     this.themeMode = ThemeMode.system,
     this.selectedOrganisationId,
     this.currentUserId,
     this.currentUserLoginId,
+    this.currentUserEmail,
     this.currentRole,
     this.currentEmployeeId,
     this.errorMessage,
@@ -35,16 +38,19 @@ class AppState {
   final List<AttendanceRecord> attendance;
   final List<SalaryAdvance> advances;
   final List<SalaryPayment> payments;
-  final bool isAuthenticated;
+  final AuthStatus authStatus;
   final bool isLoading;
   final Locale locale;
   final ThemeMode themeMode;
   final String? selectedOrganisationId;
   final String? currentUserId;
   final String? currentUserLoginId;
+  final String? currentUserEmail;
   final EmployeeRole? currentRole;
   final String? currentEmployeeId;
   final String? errorMessage;
+
+  bool get isAuthenticated => authStatus == AuthStatus.authenticated;
 
   Organisation? get selectedOrganisation {
     for (final organisation in organisations) {
@@ -59,17 +65,17 @@ class AppState {
     List<AttendanceRecord>? attendance,
     List<SalaryAdvance>? advances,
     List<SalaryPayment>? payments,
-    bool? isAuthenticated,
+    AuthStatus? authStatus,
     bool? isLoading,
     Locale? locale,
     ThemeMode? themeMode,
     String? selectedOrganisationId,
     String? currentUserId,
     String? currentUserLoginId,
+    String? currentUserEmail,
     EmployeeRole? currentRole,
     String? currentEmployeeId,
     String? errorMessage,
-    bool clearUser = false,
     bool clearError = false,
     bool clearOrganisation = false,
   }) {
@@ -79,21 +85,18 @@ class AppState {
       attendance: attendance ?? this.attendance,
       advances: advances ?? this.advances,
       payments: payments ?? this.payments,
-      isAuthenticated: isAuthenticated ?? this.isAuthenticated,
+      authStatus: authStatus ?? this.authStatus,
       isLoading: isLoading ?? this.isLoading,
       locale: locale ?? this.locale,
       themeMode: themeMode ?? this.themeMode,
       selectedOrganisationId: clearOrganisation
           ? null
           : selectedOrganisationId ?? this.selectedOrganisationId,
-      currentUserId: clearUser ? null : currentUserId ?? this.currentUserId,
-      currentUserLoginId: clearUser
-          ? null
-          : currentUserLoginId ?? this.currentUserLoginId,
-      currentRole: clearUser ? null : currentRole ?? this.currentRole,
-      currentEmployeeId: clearUser
-          ? null
-          : currentEmployeeId ?? this.currentEmployeeId,
+      currentUserId: currentUserId ?? this.currentUserId,
+      currentUserLoginId: currentUserLoginId ?? this.currentUserLoginId,
+      currentUserEmail: currentUserEmail ?? this.currentUserEmail,
+      currentRole: currentRole ?? this.currentRole,
+      currentEmployeeId: currentEmployeeId ?? this.currentEmployeeId,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
     );
   }
@@ -101,33 +104,60 @@ class AppState {
 
 class AppStateNotifier extends Notifier<AppState> {
   bool _authListenerAttached = false;
+  int _authGeneration = 0;
+  String? _profileLoadUserId;
+  Future<void>? _profileLoad;
 
   @override
   AppState build() {
     final client = SupabaseConfig.client;
-    if (client != null && !_authListenerAttached) {
+    if (client == null) {
+      return const AppState(authStatus: AuthStatus.unauthenticated);
+    }
+
+    if (!_authListenerAttached) {
       _authListenerAttached = true;
       client.auth.onAuthStateChange.listen((data) {
-        final event = data.event;
-        final user = data.session?.user;
-        if (event == AuthChangeEvent.signedOut || user == null) {
-          state = AppState(locale: state.locale, themeMode: state.themeMode);
-        } else if (state.currentUserId != user.id) {
-          unawaited(_loadUser(user));
+        switch (data.event) {
+          case AuthChangeEvent.signedIn:
+            final user = data.session?.user;
+            if (user != null) {
+              _authGeneration++;
+              unawaited(
+                _loadUser(
+                  user,
+                  completesAuthentication: true,
+                  authGeneration: _authGeneration,
+                ),
+              );
+            }
+          case AuthChangeEvent.signedOut:
+            _authGeneration++;
+            _profileLoad = null;
+            _profileLoadUserId = null;
+            state = AppState(
+              authStatus: AuthStatus.unauthenticated,
+              locale: state.locale,
+              themeMode: state.themeMode,
+            );
+          default:
+            break;
         }
       });
-
-      final user = client.auth.currentUser;
-      if (user != null) {
-        Future.microtask(() => _loadUser(user));
-        return AppState(
-          isLoading: true,
-          locale: const Locale('fr'),
-          themeMode: ThemeMode.system,
-        );
-      }
     }
-    return const AppState();
+
+    final session = SupabaseConfig.initialSession ?? client.auth.currentSession;
+    if (session == null) {
+      return const AppState(authStatus: AuthStatus.unauthenticated);
+    }
+    Future.microtask(
+      () => _loadUser(
+        session.user,
+        completesAuthentication: true,
+        authGeneration: _authGeneration,
+      ),
+    );
+    return const AppState(isLoading: true);
   }
 
   // ─── SIGN IN ────────────────────────────────────────────────────
@@ -189,7 +219,7 @@ class AppStateNotifier extends Notifier<AppState> {
       if (user == null) {
         throw const AuthException('Authentication returned no user.');
       }
-      await _loadUser(user);
+      await _loadUser(user, completesAuthentication: true);
     } on AuthException catch (error) {
       String displayMsg = error.message;
       final lower = error.message.toLowerCase();
@@ -199,29 +229,13 @@ class AppStateNotifier extends Notifier<AppState> {
       } else if (lower.contains('email not confirmed')) {
         displayMsg = "Email non confirmé. Désactivez 'Confirm email' dans Supabase (Authentication > Providers > Email).";
       }
-      state = state.copyWith(
-        isLoading: false,
-        isAuthenticated: false,
-        errorMessage: displayMsg,
-      );
+      state = state.copyWith(isLoading: false, errorMessage: displayMsg);
     } on FormatException catch (error) {
-      state = state.copyWith(
-        isLoading: false,
-        isAuthenticated: false,
-        errorMessage: error.message,
-      );
+      state = state.copyWith(isLoading: false, errorMessage: error.message);
     } on PostgrestException catch (error) {
-      state = state.copyWith(
-        isLoading: false,
-        isAuthenticated: false,
-        errorMessage: error.message,
-      );
+      state = state.copyWith(isLoading: false, errorMessage: error.message);
     } catch (error) {
-      state = state.copyWith(
-        isLoading: false,
-        isAuthenticated: false,
-        errorMessage: error.toString(),
-      );
+      state = state.copyWith(isLoading: false, errorMessage: error.toString());
     }
   }
 
@@ -262,7 +276,7 @@ class AppStateNotifier extends Notifier<AppState> {
             'Account created but sign-in returned no user.',
           );
         }
-        await _loadUser(user);
+        await _loadUser(user, completesAuthentication: true);
         return null;
       }
 
@@ -285,7 +299,7 @@ class AppStateNotifier extends Notifier<AppState> {
         throw const AuthException('Registration returned no user.');
       }
       if (response.session != null) {
-        await _loadUser(response.user!);
+        await _loadUser(response.user!, completesAuthentication: true);
       } else {
         try {
           final loginRes = isEmail
@@ -298,7 +312,7 @@ class AppStateNotifier extends Notifier<AppState> {
                   password: password,
                 );
           if (loginRes.user != null) {
-            await _loadUser(loginRes.user!);
+            await _loadUser(loginRes.user!, completesAuthentication: true);
           }
         } on AuthException catch (_) {
           state = state.copyWith(
@@ -335,7 +349,7 @@ class AppStateNotifier extends Notifier<AppState> {
           'Phone verification did not create a session.',
         );
       }
-      await _loadUser(user);
+      await _loadUser(user, completesAuthentication: true);
     } on AuthException catch (error) {
       state = state.copyWith(isLoading: false, errorMessage: error.message);
       rethrow;
@@ -353,7 +367,12 @@ class AppStateNotifier extends Notifier<AppState> {
   Future<void> signOut() async {
     final client = _requireSupabase();
     await client.auth.signOut();
-    state = AppState(locale: state.locale, themeMode: state.themeMode);
+    _authGeneration++;
+    state = AppState(
+      authStatus: AuthStatus.unauthenticated,
+      locale: state.locale,
+      themeMode: state.themeMode,
+    );
   }
 
   // ─── ORGANISATION ───────────────────────────────────────────────
@@ -403,9 +422,9 @@ class AppStateNotifier extends Notifier<AppState> {
 
   // ─── CREATE EMPLOYEE ───────────────────────────────────────────
 
-  Future<void> createEmployee({
+  Future<String> createEmployee({
     required String name,
-    required String empId,
+    required String loginEmail,
     required String jobTitle,
     required EmployeePayType payType,
     required double salaryAmount,
@@ -421,32 +440,31 @@ class AppStateNotifier extends Notifier<AppState> {
         'Only the organisation owner can create employee accounts.',
       );
     }
-    final id = cleanAccountId(empId);
+    final email = cleanEmployeeEmail(loginEmail);
 
-    // Call PostgreSQL RPC — stores ID as-is, no phone logic
-    try {
-      await client.rpc(
-        'create_employee_account',
-        params: {
-          'p_organisation_id': organisationId,
-          'p_name': name.trim(),
-          'p_login_id': id,
-          'p_job_title': jobTitle.trim(),
-          'p_pay_type': payType.name,
-          'p_salary_amount': salaryAmount,
-          'p_password': password,
-        },
+    final response = await client.functions.invoke(
+      'create-employee',
+      body: {
+        'organisation_id': organisationId,
+        'name': name.trim(),
+        'login_email': email,
+        'job_title': jobTitle.trim(),
+        'pay_type': payType.name,
+        'salary_amount': salaryAmount,
+        'password': password,
+      },
+    );
+    final data = response.data;
+    if (data is! Map || data['login_email'] is! String) {
+      throw const FormatException(
+        'The employee account service returned an invalid response.',
       );
-    } on PostgrestException catch (e) {
-      if (e.code == '42883' || e.message.contains('does not exist')) {
-        throw StateError('Run migration 008 in Supabase SQL Editor first.');
-      }
-      rethrow;
     }
 
     final user = client.auth.currentUser;
     if (user == null) throw const AuthException('Session expired.');
     await _loadUser(user, preferredOrganisationId: organisationId);
+    return data['login_email'] as String;
   }
 
   // ─── ADVANCE ────────────────────────────────────────────────────
@@ -512,7 +530,7 @@ class AppStateNotifier extends Notifier<AppState> {
   // ─── ROLE ASSIGNMENT ────────────────────────────────────────────
 
   Future<void> assignOrganisationRole({
-    required String loginId,
+    required String loginIdentifier,
     required EmployeeRole role,
     String? employeeId,
   }) async {
@@ -528,7 +546,9 @@ class AppStateNotifier extends Notifier<AppState> {
       'add_organisation_member',
       params: {
         'p_organisation_id': organisationId,
-        'p_login_id': cleanAccountId(loginId),
+        'p_login_identifier': loginIdentifier.contains('@')
+            ? cleanEmployeeEmail(loginIdentifier)
+            : cleanAccountId(loginIdentifier),
         'p_role': role.name,
         'p_employee_id': role == EmployeeRole.employee ? employeeId : null,
       },
@@ -570,14 +590,43 @@ class AppStateNotifier extends Notifier<AppState> {
     User user, {
     String? preferredOrganisationId,
     Map<String, dynamic>? preferredMembership,
+    bool completesAuthentication = false,
+    int? authGeneration,
+  }) {
+    if (_profileLoadUserId == user.id && _profileLoad != null) {
+      return _profileLoad!;
+    }
+    _profileLoadUserId = user.id;
+    final load = _loadUserProfile(
+      user,
+      preferredOrganisationId: preferredOrganisationId,
+      preferredMembership: preferredMembership,
+      completesAuthentication: completesAuthentication,
+      authGeneration: authGeneration ?? _authGeneration,
+    );
+    _profileLoad = load;
+    return load.whenComplete(() {
+      if (identical(_profileLoad, load)) {
+        _profileLoad = null;
+        _profileLoadUserId = null;
+      }
+    });
+  }
+
+  Future<void> _loadUserProfile(
+    User user, {
+    String? preferredOrganisationId,
+    Map<String, dynamic>? preferredMembership,
+    required bool completesAuthentication,
+    required int authGeneration,
   }) async {
-    state = AppState(
+    if (authGeneration != _authGeneration) return;
+    state = state.copyWith(
       isLoading: true,
-      isAuthenticated: true,
       currentUserId: user.id,
       currentUserLoginId: _loginIdForUser(user),
-      locale: state.locale,
-      themeMode: state.themeMode,
+      currentUserEmail: user.email,
+      clearError: true,
     );
 
     try {
@@ -587,6 +636,7 @@ class AppStateNotifier extends Notifier<AppState> {
           .from('organisation_members')
           .select('organisation_id, role, employee_id')
           .eq('user_id', user.id);
+      if (authGeneration != _authGeneration) return;
       final membershipRows = List<Map<String, dynamic>>.from(memberships);
 
       final organisationIds = membershipRows
@@ -618,19 +668,24 @@ class AppStateNotifier extends Notifier<AppState> {
               .firstOrNull;
 
       if (selectedId == null || selectedMembership == null) {
+        if (authGeneration != _authGeneration) return;
         state = state.copyWith(
           organisations: organisationModels,
           employees: const [],
           attendance: const [],
           advances: const [],
           payments: const [],
-          isAuthenticated: true,
           isLoading: false,
           currentUserId: user.id,
           currentUserLoginId: _loginIdForUser(user),
+          currentUserEmail: user.email,
           clearOrganisation: true,
           currentRole: null,
           currentEmployeeId: null,
+          authStatus:
+              completesAuthentication && authGeneration == _authGeneration
+              ? AuthStatus.authenticated
+              : null,
         );
         return;
       }
@@ -691,20 +746,24 @@ class AppStateNotifier extends Notifier<AppState> {
         debugPrint('Could not load payments: $e');
       }
 
+      if (authGeneration != _authGeneration) return;
       state = state.copyWith(
         organisations: organisationModels,
         employees: employees,
         attendance: attendanceList,
         advances: advancesList,
         payments: paymentsList,
-        isAuthenticated: true,
         isLoading: false,
         currentUserId: user.id,
         currentUserLoginId: _loginIdForUser(user),
+        currentUserEmail: user.email,
         selectedOrganisationId: selectedId,
         currentRole: role,
         currentEmployeeId: employeeId,
         clearError: true,
+        authStatus: completesAuthentication && authGeneration == _authGeneration
+            ? AuthStatus.authenticated
+            : null,
       );
 
       if (role == EmployeeRole.owner) {
@@ -718,11 +777,14 @@ class AppStateNotifier extends Notifier<AppState> {
         );
       }
     } catch (error) {
+      if (authGeneration != _authGeneration) return;
       debugPrint('_loadUser error: $error');
       state = state.copyWith(
-        isAuthenticated: true,
         isLoading: false,
         errorMessage: 'Could not load data: $error',
+        authStatus: completesAuthentication && authGeneration == _authGeneration
+            ? AuthStatus.authenticated
+            : null,
       );
     }
   }
@@ -758,6 +820,7 @@ class AppStateNotifier extends Notifier<AppState> {
         row['employment_status'] as String? ?? 'active',
       ),
       loginId: row['login_id'] as String?,
+      loginEmail: row['login_email'] as String?,
       hireDate: DateTime.tryParse(row['hire_date'] as String? ?? ''),
     );
   }

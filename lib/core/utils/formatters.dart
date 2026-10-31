@@ -53,6 +53,53 @@ String employeeLoginEmail(String employeeId) {
   return 'emp-$employeeId@chef.local';
 }
 
+String employeeEmailAddress(
+  String employeeName,
+  String organisationName, {
+  int? suffix,
+}) {
+  final localName = _emailSlug(
+    employeeName,
+    separator: '_',
+    fallback: 'employee',
+  );
+  final organisation = _emailSlug(
+    organisationName,
+    separator: '-',
+    fallback: 'organisation',
+  );
+  final localPart = suffix == null ? localName : '$localName$suffix';
+  return '$localPart@$organisation.tn';
+}
+
+String _emailSlug(
+  String value, {
+  required String separator,
+  required String fallback,
+}) {
+  final slug = value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), separator)
+      .replaceAll(RegExp('${RegExp.escape(separator)}+'), separator)
+      .replaceAll(
+        RegExp('^${RegExp.escape(separator)}|${RegExp.escape(separator)}\$'),
+        '',
+      );
+  return slug.isEmpty ? fallback : slug;
+}
+
+String cleanEmployeeEmail(String value) {
+  final email = value.trim().toLowerCase();
+  if (!RegExp(
+    r'^[a-z0-9._%+-]+@([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$',
+    caseSensitive: false,
+  ).hasMatch(email)) {
+    throw const FormatException('Enter a valid employee email address.');
+  }
+  return email;
+}
+
 String? loginIdFromAuthEmail(String? email) {
   if (email == null) return null;
   final match = RegExp(r'^(?:id-|emp-|employee-)(\d{8})@').firstMatch(email);
