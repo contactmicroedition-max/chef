@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:zone/features/auth/presentation/chef_logo.dart';
+import 'package:zone/features/auth/presentation/widgets/chef_logo.dart';
 
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});

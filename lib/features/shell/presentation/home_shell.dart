@@ -5,6 +5,7 @@ import 'package:zone/features/dashboard/presentation/screens/dashboard_screen.da
 import 'package:zone/features/dashboard/presentation/screens/worker_panel_screen.dart';
 import 'package:zone/features/employees/domain/employee.dart';
 import 'package:zone/features/employees/presentation/screens/employees_screen.dart';
+import 'package:zone/features/organisations/presentation/dialogs/organisation_switcher_dialog.dart';
 import 'package:zone/features/payroll/presentation/screens/employee_salaries_screen.dart';
 import 'package:zone/features/settings/presentation/screens/settings_screen.dart';
 import 'package:zone/providers/app_state.dart';
@@ -157,35 +158,21 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen> {
   void _showOrgSwitcher(BuildContext context, AppState state) {
     showDialog<void>(
       context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('Choose organisation'),
-        children: state.organisations
-            .map(
-              (organisation) => SimpleDialogOption(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  try {
-                    await ref
-                        .read(appStateProvider.notifier)
-                        .selectOrganisation(organisation.id);
-                  } catch (error) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(SnackBar(content: Text(error.toString())));
-                    }
-                  }
-                },
-                child: ListTile(
-                  leading: const Icon(Icons.business_rounded),
-                  title: Text(organisation.name),
-                  trailing: organisation.id == state.selectedOrganisationId
-                      ? const Icon(Icons.check_circle, color: Colors.green)
-                      : null,
-                ),
-              ),
-            )
-            .toList(),
+      builder: (context) => OrganisationSwitcherDialog(
+        organisations: state.organisations,
+        selectedOrganisationId: state.selectedOrganisationId,
+        onSelect: (dialogContext, organisation) async {
+          try {
+            await ref
+                .read(appStateProvider.notifier)
+                .selectOrganisation(organisation.id);
+          } catch (error) {
+            if (dialogContext.mounted) {
+              ScaffoldMessenger.of(dialogContext)
+                  .showSnackBar(SnackBar(content: Text(error.toString())));
+            }
+          }
+        },
       ),
     );
   }
