@@ -5,6 +5,10 @@ import 'package:zone/features/auth/presentation/screens/login_screen.dart';
 import 'package:zone/features/auth/presentation/screens/register_screen.dart';
 import 'package:zone/features/auth/presentation/screens/splash_screen.dart';
 import 'package:zone/features/organisations/presentation/screens/create_organisation_screen.dart';
+import 'package:zone/features/organisations/presentation/screens/organisations_screen.dart';
+import 'package:zone/features/organisations/presentation/screens/organisation_zone_screen.dart';
+import 'package:zone/features/organisations/domain/organisation.dart';
+import 'package:zone/features/organisations/domain/organisation_draft.dart';
 import 'package:zone/app/home_shell.dart';
 import 'package:zone/providers/app_state.dart';
 
@@ -38,6 +42,33 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/org-setup',
         builder: (context, state) => const CreateOrganisationScreen(),
+      ),
+      GoRoute(
+        path: '/organisations',
+        builder: (context, state) => const OrganisationsScreen(),
+      ),
+      GoRoute(
+        path: '/organisations/new',
+        builder: (context, state) => const CreateOrganisationScreen(),
+      ),
+      GoRoute(
+        path: '/organisations/new/zone',
+        builder: (context, state) =>
+            OrganisationZoneScreen(draft: state.extra as OrganisationDraft),
+      ),
+      GoRoute(
+        path: '/org-setup/zone',
+        builder: (context, state) => OrganisationZoneScreen(
+          draft: state.extra as OrganisationDraft,
+          returnToHome: true,
+        ),
+      ),
+      GoRoute(
+        path: '/organisations/:organisationId/zone',
+        builder: (context, state) => OrganisationZoneScreen(
+          organisationId: state.pathParameters['organisationId']!,
+          organisation: state.extra as Organisation,
+        ),
       ),
       GoRoute(
         path: '/home',

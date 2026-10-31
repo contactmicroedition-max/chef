@@ -12,6 +12,8 @@ import 'package:zone/features/employees/data/employees_repository.dart';
 import 'package:zone/features/employees/domain/employee.dart';
 import 'package:zone/features/organisations/data/organisations_repository.dart';
 import 'package:zone/features/organisations/domain/organisation.dart';
+import 'package:zone/features/organisations/domain/organisation_draft.dart';
+import 'package:zone/features/organisations/domain/organisation_zone.dart';
 import 'package:zone/features/payroll/data/payroll_repository.dart';
 import 'package:zone/features/payroll/domain/payroll.dart';
 import 'package:zone/services/push/push_notification_service.dart';
@@ -300,6 +302,40 @@ class AppStateNotifier extends Notifier<AppState> {
     } catch (error) {
       state = state.copyWith(isLoading: false, errorMessage: error.toString());
     }
+  }
+
+  Future<String> createOrganisationWithZone({
+    required OrganisationDraft draft,
+    required OrganisationZone zone,
+  }) async {
+    if (state.currentRole != null && state.currentRole != EmployeeRole.owner) {
+      throw StateError('Only organisation owners can create organisations.');
+    }
+    final user = ref.read(authRepositoryProvider).currentUser;
+    if (user == null) throw const AuthException('Session expired.');
+
+    final organisationId = await ref
+        .read(organisationsRepositoryProvider)
+        .createOrganisationWithZone(
+          name: draft.name,
+          address: draft.address,
+          phone: draft.phone,
+          logoUrl: draft.logoUrl,
+          currency: draft.currency,
+          timezone: draft.timezone,
+          zone: zone,
+        );
+    await _loadUser(
+      user,
+      preferredOrganisationId: organisationId,
+      authGeneration: _authGeneration,
+    );
+    if (!state.organisations.any((item) => item.id == organisationId)) {
+      throw StateError(
+        state.errorMessage ?? 'The new organisation could not be loaded.',
+      );
+    }
+    return organisationId;
   }
 
   Future<void> selectOrganisation(String organisationId) async {

@@ -6,6 +6,7 @@ import 'package:zone/features/dashboard/presentation/screens/worker_panel_screen
 import 'package:zone/features/employees/domain/employee.dart';
 import 'package:zone/features/employees/presentation/screens/employees_screen.dart';
 import 'package:zone/features/organisations/presentation/dialogs/organisation_switcher_dialog.dart';
+import 'package:zone/features/organisations/presentation/screens/organisations_screen.dart';
 import 'package:zone/features/payroll/presentation/screens/employee_salaries_screen.dart';
 import 'package:zone/features/settings/presentation/screens/settings_screen.dart';
 import 'package:zone/providers/app_state.dart';
@@ -25,9 +26,19 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen> {
     final state = ref.watch(appStateProvider);
     final selectedOrganisation = state.selectedOrganisation;
     final isWorker = state.currentRole == EmployeeRole.employee;
+    final isOwner = state.currentRole == EmployeeRole.owner;
 
     final pages = isWorker
         ? const [WorkerPanelScreen(), AttendanceScreen(), SettingsScreen()]
+        : isOwner
+        ? const [
+            DashboardScreen(),
+            EmployeesScreen(),
+            AttendanceScreen(),
+            EmployeeSalariesScreen(),
+            OrganisationsScreen(),
+            SettingsScreen(),
+          ]
         : const [
             DashboardScreen(),
             EmployeesScreen(),
@@ -44,6 +55,33 @@ class _HomeShellScreenState extends ConsumerState<HomeShellScreen> {
             NavigationDestination(
               icon: Icon(Icons.calendar_month_rounded),
               label: 'Attendance',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.settings_rounded),
+              label: 'Settings',
+            ),
+          ]
+        : isOwner
+        ? const [
+            NavigationDestination(
+              icon: Icon(Icons.dashboard_rounded),
+              label: 'Dashboard',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.people_alt_rounded),
+              label: 'Employees',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.calendar_month_rounded),
+              label: 'Attendance',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.attach_money_rounded),
+              label: 'Salaries',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.business_rounded),
+              label: 'Organisations',
             ),
             NavigationDestination(
               icon: Icon(Icons.settings_rounded),

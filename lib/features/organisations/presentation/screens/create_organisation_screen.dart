@@ -1,55 +1,52 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:zone/providers/app_state.dart';
+import 'package:zone/core/widgets/app_button.dart';
+import 'package:zone/core/widgets/dialog_form_field.dart';
+import 'package:zone/features/organisations/domain/organisation_draft.dart';
 
-class CreateOrganisationScreen extends ConsumerStatefulWidget {
+class CreateOrganisationScreen extends StatefulWidget {
   const CreateOrganisationScreen({super.key});
 
   @override
-  ConsumerState<CreateOrganisationScreen> createState() =>
+  State<CreateOrganisationScreen> createState() =>
       _CreateOrganisationScreenState();
 }
 
-class _CreateOrganisationScreenState
-    extends ConsumerState<CreateOrganisationScreen> {
+class _CreateOrganisationScreenState extends State<CreateOrganisationScreen> {
   final _formKey = GlobalKey<FormState>();
   final nameController = TextEditingController();
   final addressController = TextEditingController();
   final phoneController = TextEditingController();
+  final logoUrlController = TextEditingController();
+  final timezoneController = TextEditingController(text: 'Africa/Tunis');
   String _currency = 'TND';
-  String? _errorMessage;
-  bool _isSaving = false;
 
   @override
   void dispose() {
     nameController.dispose();
     addressController.dispose();
     phoneController.dispose();
+    logoUrlController.dispose();
+    timezoneController.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _isSaving = true;
-      _errorMessage = null;
-    });
-    try {
-      await ref
-          .read(appStateProvider.notifier)
-          .createOrganisation(
-            name: nameController.text,
-            address: addressController.text,
-            phone: phoneController.text,
-            currency: _currency,
-          );
-      if (mounted) context.go('/home');
-    } catch (error) {
-      if (mounted) setState(() => _errorMessage = error.toString());
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
+    final isInitialSetup =
+        GoRouterState.of(context).matchedLocation == '/org-setup';
+    final draft = OrganisationDraft(
+      name: nameController.text.trim(),
+      address: addressController.text,
+      phone: phoneController.text,
+      logoUrl: logoUrlController.text,
+      currency: _currency,
+      timezone: timezoneController.text.trim(),
+    );
+    context.push(
+      isInitialSetup ? '/org-setup/zone' : '/organisations/new/zone',
+      extra: draft,
+    );
   }
 
   @override
@@ -73,32 +70,36 @@ class _CreateOrganisationScreenState
               ),
             ),
             const SizedBox(height: 20),
-            TextFormField(
+            DialogFormField(
               controller: nameController,
-              decoration: const InputDecoration(
-                labelText: 'Organisation name',
-                prefixIcon: Icon(Icons.business_rounded),
-              ),
+              label: 'Organisation name',
               validator: (value) => value == null || value.trim().isEmpty
                   ? 'Enter an organisation name'
                   : null,
             ),
-            const SizedBox(height: 12),
-            TextField(
+            DialogFormField(
               controller: addressController,
-              decoration: const InputDecoration(
-                labelText: 'Address (optional)',
-                prefixIcon: Icon(Icons.location_on_outlined),
-              ),
+              label: 'Address (optional)',
+              validator: (_) => null,
             ),
-            const SizedBox(height: 12),
-            TextField(
+            DialogFormField(
               controller: phoneController,
+              label: 'Phone (optional)',
               keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Phone (optional)',
-                prefixIcon: Icon(Icons.phone_outlined),
-              ),
+              validator: (_) => null,
+            ),
+            DialogFormField(
+              controller: logoUrlController,
+              label: 'Logo URL (optional)',
+              keyboardType: TextInputType.url,
+              validator: (_) => null,
+            ),
+            DialogFormField(
+              controller: timezoneController,
+              label: 'Timezone',
+              validator: (value) => value == null || value.trim().isEmpty
+                  ? 'Enter a timezone'
+                  : null,
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
@@ -120,31 +121,11 @@ class _CreateOrganisationScreenState
               ),
             ),
             const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _isSaving ? null : _save,
-              icon: _isSaving
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.save_rounded),
-              label: Text(_isSaving ? 'Saving…' : 'Save organisation'),
+            AppButton(
+              onPressed: _save,
+              icon: const Icon(Icons.arrow_forward_rounded),
+              child: const Text('Continue to work zone'),
             ),
-            if (_errorMessage != null) ...[
-              const SizedBox(height: 12),
-              Card(
-                color: Theme.of(context).colorScheme.errorContainer,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                    _errorMessage!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onErrorContainer,
-                    ),
-                  ),
-                ),
-              ),
-            ],
           ],
         ),
       ),
