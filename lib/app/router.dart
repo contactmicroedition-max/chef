@@ -21,17 +21,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     refreshListenable: refreshListenable,
     redirect: (context, state) {
       final authStatus = ref.read(appStateProvider).authStatus;
-      if (authStatus == AuthStatus.unknown) {
-        return state.matchedLocation == '/splash' ? null : '/splash';
-      }
-      if (authStatus == AuthStatus.unauthenticated) {
-        return state.matchedLocation == '/login' ? null : '/login';
-      }
-      if (state.matchedLocation == '/login' ||
-          state.matchedLocation == '/splash') {
-        return '/home';
-      }
-      return null;
+      return authRedirectLocation(authStatus, state.matchedLocation);
     },
     routes: [
       GoRoute(
@@ -59,6 +49,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   });
   return router;
 });
+
+String? authRedirectLocation(AuthStatus authStatus, String matchedLocation) {
+  if (authStatus == AuthStatus.unknown) {
+    return matchedLocation == '/splash' ? null : '/splash';
+  }
+  if (authStatus == AuthStatus.unauthenticated) {
+    return matchedLocation == '/login' ? null : '/login';
+  }
+  if (matchedLocation == '/login' || matchedLocation == '/splash') {
+    return '/home';
+  }
+  return null;
+}
 
 class _AuthStatusRefreshListenable extends ChangeNotifier {
   void refresh() => notifyListeners();
