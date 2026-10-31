@@ -13,7 +13,8 @@ Future<void> main() async {
 
   await PushNotificationService.initializeForCurrentPlatform();
 
-  SupabaseConfig.initialSession = null;
+  SupabaseClient? supabaseClient;
+  Session? initialSession;
   final supabaseUrl = dotenv.env['SUPABASE_URL'];
   final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'];
 
@@ -25,14 +26,21 @@ Future<void> main() async {
       url: supabaseUrl,
       publishableKey: supabaseAnonKey,
     );
-    SupabaseConfig.client = Supabase.instance.client;
-    SupabaseConfig.initialSession =
-        Supabase.instance.client.auth.currentSession;
+    supabaseClient = Supabase.instance.client;
+    initialSession = supabaseClient.auth.currentSession;
   } else {
     debugPrint(
       'Supabase configuration is missing. Set SUPABASE_URL and SUPABASE_ANON_KEY in .env',
     );
   }
 
-  runApp(const ProviderScope(child: ZoneApp()));
+  runApp(
+    ProviderScope(
+      overrides: [
+        supabaseClientProvider.overrideWithValue(supabaseClient),
+        supabaseInitialSessionProvider.overrideWithValue(initialSession),
+      ],
+      child: const ZoneApp(),
+    ),
+  );
 }

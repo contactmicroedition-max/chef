@@ -1,6 +1,6 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class SupabaseConfig {
-  static SupabaseClient? client;
-  static Session? initialSession;
-}
+final supabaseClientProvider = Provider<SupabaseClient?>((ref) => null);
+
+final supabaseInitialSessionProvider = Provider<Session?>((ref) => null);

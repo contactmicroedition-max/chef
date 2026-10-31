@@ -110,7 +110,7 @@ class AppStateNotifier extends Notifier<AppState> {
 
   @override
   AppState build() {
-    final client = SupabaseConfig.client;
+    final client = ref.read(supabaseClientProvider);
     if (client == null) {
       return const AppState(authStatus: AuthStatus.unauthenticated);
     }
@@ -146,7 +146,8 @@ class AppStateNotifier extends Notifier<AppState> {
       });
     }
 
-    final session = SupabaseConfig.initialSession ?? client.auth.currentSession;
+    final session =
+        ref.read(supabaseInitialSessionProvider) ?? client.auth.currentSession;
     if (session == null) {
       return const AppState(authStatus: AuthStatus.unauthenticated);
     }
@@ -881,7 +882,7 @@ class AppStateNotifier extends Notifier<AppState> {
   };
 
   SupabaseClient _requireSupabase() {
-    final client = SupabaseConfig.client;
+    final client = ref.read(supabaseClientProvider);
     if (client == null) {
       throw StateError(
         'Supabase is not configured. Check SUPABASE_URL and SUPABASE_ANON_KEY in .env',
