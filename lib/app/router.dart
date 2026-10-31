@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:zone/features/auth/presentation/auth_screens.dart';
+import 'package:zone/features/auth/presentation/screens/login_screen.dart';
+import 'package:zone/features/auth/presentation/screens/register_screen.dart';
 import 'package:zone/features/auth/presentation/splash_screen.dart';
 import 'package:zone/features/organisations/presentation/create_organisation_screen.dart';
 import 'package:zone/features/shell/presentation/home_shell.dart';
