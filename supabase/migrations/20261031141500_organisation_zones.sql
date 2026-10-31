@@ -216,14 +216,17 @@ begin
     raise exception 'Work zone cannot exceed 10 square kilometres';
   end if;
 
-  update public.organisation_zones
-  set polygon = zone_geometry::extensions.geography,
-      updated_at = pg_catalog.now()
-  where organisation_id = p_organisation_id;
-
-  if not found then
-    raise exception 'Organisation work zone was not found';
-  end if;
+  insert into public.organisation_zones (
+    organisation_id, polygon, updated_at
+  )
+  values (
+    p_organisation_id,
+    zone_geometry::extensions.geography,
+    pg_catalog.now()
+  )
+  on conflict (organisation_id) do update
+  set polygon = excluded.polygon,
+      updated_at = excluded.updated_at;
 end;
 $$;
 
