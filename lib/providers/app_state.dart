@@ -11,6 +11,7 @@ import 'package:zone/core/models/payroll.dart';
 import 'package:zone/core/services/push_notification_service.dart';
 import 'package:zone/core/utils/formatters.dart';
 import 'package:zone/features/auth/data/auth_repository.dart';
+import 'package:zone/features/attendance/data/attendance_repository.dart';
 import 'package:zone/features/employees/data/employees_repository.dart';
 import 'package:zone/features/organisations/data/organisations_repository.dart';
 
@@ -386,7 +387,6 @@ class AppStateNotifier extends Notifier<AppState> {
   // ─── ATTENDANCE ─────────────────────────────────────────────────
 
   Future<String?> recordEmployeeShift({required bool clockIn}) async {
-    final client = _requireSupabase();
     final organisationId = state.selectedOrganisationId;
     if (state.currentRole != EmployeeRole.employee ||
         state.currentEmployeeId == null ||
@@ -394,27 +394,15 @@ class AppStateNotifier extends Notifier<AppState> {
       throw StateError('Only a linked employee can record their own shift.');
     }
 
-    final response = await client.functions.invoke(
-      'employee-attendance',
-      body: {
-        'organisation_id': organisationId,
-        'action': clockIn ? 'clock_in' : 'clock_out',
-      },
-    );
-    final result = response.data;
-    final notificationSent =
-        result is Map && result['notification_sent'] == true;
-    final notificationMessage = result is Map
-        ? result['notification_message']
-        : null;
-    final user = client.auth.currentUser;
+    final result = await ref
+        .read(attendanceRepositoryProvider)
+        .recordEmployeeShift(organisationId: organisationId, clockIn: clockIn);
+    final user = ref.read(authRepositoryProvider).currentUser;
     if (user == null) throw const AuthException('Session expired.');
     await _loadUser(user, preferredOrganisationId: organisationId);
-    return notificationSent
-        ? null
-        : notificationMessage is String
-        ? notificationMessage
-        : 'The owner push notification could not be sent.';
+    if (result.notificationSent) return null;
+    return result.notificationMessage ??
+        'The owner push notification could not be sent.';
   }
 
   // ─── ROLE ASSIGNMENT ────────────────────────────────────────────
@@ -565,15 +553,9 @@ class AppStateNotifier extends Notifier<AppState> {
 
       List<AttendanceRecord> attendanceList = [];
       try {
-        final attendanceRows = await client
-            .from('attendance_records')
-            .select()
-            .eq('organisation_id', selectedId)
-            .order('shift_date', ascending: false)
-            .limit(200);
-        attendanceList = List<Map<String, dynamic>>.from(attendanceRows)
-            .map(_attendanceFromRow)
-            .toList();
+        attendanceList = await ref
+            .read(attendanceRepositoryProvider)
+            .attendanceForOrganisation(selectedId);
       } catch (e) {
         debugPrint('Could not load attendance: $e');
       }
@@ -655,21 +637,6 @@ class AppStateNotifier extends Notifier<AppState> {
     final metadata = user.userMetadata;
     final loginId = metadata == null ? null : metadata['login_id'];
     return loginId is String ? loginId : loginIdFromAuthEmail(user.email);
-  }
-
-  AttendanceRecord _attendanceFromRow(Map<String, dynamic> row) {
-    return AttendanceRecord(
-      id: row['id'] as String,
-      employeeId: row['employee_id'] as String,
-      organisationId: row['organisation_id'] as String,
-      date: DateTime.parse(row['shift_date'] as String),
-      clockIn: DateTime.parse(row['clock_in'] as String),
-      clockOut: row['clock_out'] == null
-          ? null
-          : DateTime.parse(row['clock_out'] as String),
-      note: row['note'] as String?,
-      status: row['status'] as String? ?? 'approved',
-    );
   }
 
   SalaryAdvance _advanceFromRow(Map<String, dynamic> row) {
