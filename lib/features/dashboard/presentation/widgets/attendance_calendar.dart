@@ -50,8 +50,25 @@ class _AttendanceCalendarState extends State<AttendanceCalendar> {
       _displayedMonth.year,
       _displayedMonth.month,
     );
-    final attendanceDays = widget.records
-        .map((record) => DateUtils.dateOnly(record.date.toLocal()))
+    final recordsByDay = <DateTime, List<AttendanceRecord>>{};
+    for (final record in widget.records) {
+      final date = DateUtils.dateOnly(record.date.toLocal());
+      recordsByDay.putIfAbsent(date, () => []).add(record);
+    }
+    final attendanceDays = recordsByDay.keys.toSet();
+    final approvedMultipleShiftDays = recordsByDay.entries
+        .where((entry) {
+          final shiftIds = entry.value
+              .map((record) => record.shiftId)
+              .whereType<String>()
+              .where((id) => id.isNotEmpty)
+              .toSet();
+          return shiftIds.length >= 2 &&
+              entry.value.every(
+                (record) => record.approvalStatus.toLowerCase() == 'approved',
+              );
+        })
+        .map((entry) => entry.key)
         .toSet();
     final headers = List.generate(7, (index) {
       final weekday = (localizations.firstDayOfWeekIndex + index) % 7;
@@ -110,23 +127,46 @@ class _AttendanceCalendarState extends State<AttendanceCalendar> {
                         row * 7 + column - leadingDays + 1,
                         daysInMonth,
                         attendanceDays,
+                        approvedMultipleShiftDays,
                       ),
                     ),
                 ],
               ),
             const SizedBox(height: 6),
-            Row(
+            Wrap(
+              spacing: 16,
+              runSpacing: 8,
               children: [
-                Container(
-                  width: 7,
-                  height: 7,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
-                    shape: BoxShape.circle,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Text('Attendance recorded'),
+                  ],
                 ),
-                const SizedBox(width: 6),
-                const Text('Attendance recorded'),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.error,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Text('Two approved shifts'),
+                  ],
+                ),
               ],
             ),
           ],
@@ -140,6 +180,7 @@ class _AttendanceCalendarState extends State<AttendanceCalendar> {
     int day,
     int daysInMonth,
     Set<DateTime> attendanceDays,
+    Set<DateTime> approvedMultipleShiftDays,
   ) {
     if (day < 1 || day > daysInMonth) return const SizedBox(height: 42);
     final date = DateTime(_displayedMonth.year, _displayedMonth.month, day);
@@ -148,7 +189,18 @@ class _AttendanceCalendarState extends State<AttendanceCalendar> {
       DateUtils.dateOnly(widget.selectedDate),
     );
     final hasAttendance = attendanceDays.contains(date);
+    final hasApprovedMultipleShifts = approvedMultipleShiftDays.contains(date);
     final colors = Theme.of(context).colorScheme;
+    final backgroundColor = hasApprovedMultipleShifts
+        ? colors.error
+        : selected
+        ? colors.primary
+        : null;
+    final foregroundColor = hasApprovedMultipleShifts
+        ? colors.onError
+        : selected
+        ? colors.onPrimary
+        : null;
 
     return Padding(
       padding: const EdgeInsets.all(2),
@@ -158,7 +210,7 @@ class _AttendanceCalendarState extends State<AttendanceCalendar> {
         child: Container(
           height: 38,
           decoration: BoxDecoration(
-            color: selected ? colors.primary : null,
+            color: backgroundColor,
             shape: BoxShape.circle,
           ),
           child: Column(
@@ -167,8 +219,10 @@ class _AttendanceCalendarState extends State<AttendanceCalendar> {
               Text(
                 '$day',
                 style: TextStyle(
-                  color: selected ? colors.onPrimary : null,
-                  fontWeight: selected ? FontWeight.bold : null,
+                  color: foregroundColor,
+                  fontWeight: selected || hasApprovedMultipleShifts
+                      ? FontWeight.bold
+                      : null,
                 ),
               ),
               const SizedBox(height: 2),
@@ -177,9 +231,7 @@ class _AttendanceCalendarState extends State<AttendanceCalendar> {
                 height: 5,
                 decoration: BoxDecoration(
                   color: hasAttendance
-                      ? selected
-                            ? colors.onPrimary
-                            : colors.primary
+                      ? foregroundColor ?? colors.primary
                       : Colors.transparent,
                   shape: BoxShape.circle,
                 ),

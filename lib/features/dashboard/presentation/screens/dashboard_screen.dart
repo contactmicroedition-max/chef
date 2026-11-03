@@ -20,7 +20,10 @@ class DashboardScreen extends ConsumerWidget {
 
     // This month's attendance
     final thisMonthAttendance = state.attendance.where(
-      (r) => r.date.year == now.year && r.date.month == now.month,
+      (r) =>
+          r.date.year == now.year &&
+          r.date.month == now.month &&
+          r.approvalStatus == 'approved',
     );
     final totalHours = thisMonthAttendance.fold<double>(
       0,

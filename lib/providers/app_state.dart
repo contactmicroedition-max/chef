@@ -368,6 +368,7 @@ class AppStateNotifier extends Notifier<AppState> {
     required EmployeePayType payType,
     required double salaryAmount,
     required String password,
+    String? shiftId,
   }) async {
     final organisationId = state.selectedOrganisationId;
     if (organisationId == null) {
@@ -390,11 +391,75 @@ class AppStateNotifier extends Notifier<AppState> {
           payType: payType,
           salaryAmount: salaryAmount,
           password: password,
+          shiftId: shiftId,
+        );
+    await refreshAttendance();
+    return createdEmail;
+  }
+
+  Future<void> assignEmployeeShift({
+    required String employeeId,
+    required String? shiftId,
+  }) async {
+    final organisationId = state.selectedOrganisationId;
+    if (organisationId == null) {
+      throw StateError('Select an organisation before assigning a shift.');
+    }
+    if (state.currentRole != EmployeeRole.owner &&
+        state.currentRole != EmployeeRole.manager) {
+      throw StateError('Only organisation managers can assign shifts.');
+    }
+    final employee = state.employees
+        .where(
+          (employee) =>
+              employee.id == employeeId &&
+              employee.organisationId == organisationId,
+        )
+        .firstOrNull;
+    if (employee == null) {
+      throw StateError('The selected employee is not in this organisation.');
+    }
+    await ref
+        .read(employeesRepositoryProvider)
+        .assignShift(
+          organisationId: organisationId,
+          employeeId: employeeId,
+          shiftId: shiftId,
         );
     final user = ref.read(authRepositoryProvider).currentUser;
     if (user == null) throw const AuthException('Session expired.');
     await _loadUser(user, preferredOrganisationId: organisationId);
-    return createdEmail;
+  }
+
+  Future<void> archiveEmployee(String employeeId) async {
+    final organisationId = state.selectedOrganisationId;
+    if (organisationId == null) {
+      throw StateError('Select an organisation before archiving an employee.');
+    }
+    if (state.currentRole != EmployeeRole.owner &&
+        state.currentRole != EmployeeRole.manager) {
+      throw StateError('Only organisation managers can archive employees.');
+    }
+    final employee = state.employees
+        .where(
+          (employee) =>
+              employee.id == employeeId &&
+              employee.organisationId == organisationId,
+        )
+        .firstOrNull;
+    if (employee == null) {
+      throw StateError('The selected employee is not in this organisation.');
+    }
+    await ref
+        .read(employeesRepositoryProvider)
+        .setEmploymentStatus(
+          organisationId: organisationId,
+          employeeId: employeeId,
+          status: EmploymentStatus.inactive,
+        );
+    final user = ref.read(authRepositoryProvider).currentUser;
+    if (user == null) throw const AuthException('Session expired.');
+    await _loadUser(user, preferredOrganisationId: organisationId);
   }
 
   // ─── ADVANCE ────────────────────────────────────────────────────
@@ -448,9 +513,47 @@ class AppStateNotifier extends Notifier<AppState> {
     final user = ref.read(authRepositoryProvider).currentUser;
     if (user == null) throw const AuthException('Session expired.');
     await _loadUser(user, preferredOrganisationId: organisationId);
+    if (clockIn && result.approvalStatus == 'pending') {
+      final assignedShift = result.assignedShiftName ?? 'your assigned shift';
+      final attendanceShift =
+          result.attendanceShiftName ?? 'another scheduled shift';
+      final warning =
+          'You are assigned to $assignedShift, but clocked in during $attendanceShift. Your attendance is waiting for admin approval.';
+      return result.notificationSent
+          ? warning
+          : '$warning ${result.notificationMessage ?? 'The push alert could not be sent.'}';
+    }
     if (result.notificationSent) return null;
     return result.notificationMessage ??
-        'The owner push notification could not be sent.';
+        'The organisation admin notification could not be sent.';
+  }
+
+  Future<void> reviewAttendanceRecord({
+    required String attendanceId,
+    required bool approve,
+  }) async {
+    if (state.currentRole != EmployeeRole.owner &&
+        state.currentRole != EmployeeRole.manager) {
+      throw StateError('Only organisation admins can review attendance.');
+    }
+    final organisationId = state.selectedOrganisationId;
+    if (organisationId == null) {
+      throw StateError('Select an organisation before reviewing attendance.');
+    }
+    await ref
+        .read(attendanceRepositoryProvider)
+        .reviewAttendanceRecord(attendanceId: attendanceId, approve: approve);
+    await refreshAttendance();
+  }
+
+  Future<void> refreshAttendance() async {
+    final organisationId = state.selectedOrganisationId;
+    if (organisationId == null) return;
+    final attendance = await ref
+        .read(attendanceRepositoryProvider)
+        .attendanceForOrganisation(organisationId);
+    if (state.selectedOrganisationId != organisationId) return;
+    state = state.copyWith(attendance: attendance);
   }
 
   // ─── ROLE ASSIGNMENT ────────────────────────────────────────────
@@ -653,13 +756,15 @@ class AppStateNotifier extends Notifier<AppState> {
             : null,
       );
 
-      if (role == EmployeeRole.owner) {
+      if (role == EmployeeRole.owner ||
+          role == EmployeeRole.manager ||
+          role == EmployeeRole.employee) {
         unawaited(
-          PushNotificationService.registerOwnerDevice(
+          PushNotificationService.registerDevice(
             client: client,
             userId: user.id,
           ).catchError((Object error, StackTrace stackTrace) {
-            debugPrint('Could not register owner push notifications: $error');
+            debugPrint('Could not register push notifications: $error');
           }),
         );
       }

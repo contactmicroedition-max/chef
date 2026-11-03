@@ -145,6 +145,7 @@ class _EmployeeAttendanceTableState extends State<EmployeeAttendanceTable> {
             child: DataTable(
               columns: const [
                 DataColumn(label: Text('Date')),
+                DataColumn(label: Text('Shift')),
                 DataColumn(label: Text('Clock in')),
                 DataColumn(label: Text('Clock out')),
                 DataColumn(label: Text('Hours')),
@@ -156,12 +157,18 @@ class _EmployeeAttendanceTableState extends State<EmployeeAttendanceTable> {
                 return DataRow(
                   cells: [
                     DataCell(Text(formatDate(record.date.toLocal()))),
+                    DataCell(Text(record.shiftName ?? 'Unassigned')),
                     DataCell(Text(_formatTime(clockIn))),
                     DataCell(
                       Text(clockOut == null ? '—' : _formatTime(clockOut)),
                     ),
                     DataCell(Text(formatDuration(record.duration))),
-                    DataCell(Text(record.status)),
+                    DataCell(
+                      Text(
+                        '${record.approvalStatus}'
+                        '${record.autoClosed ? ' · auto-closed' : ''}',
+                      ),
+                    ),
                   ],
                 );
               }).toList(),

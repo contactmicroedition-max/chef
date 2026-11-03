@@ -16,6 +16,7 @@ class EmployeesRepository {
     required EmployeePayType payType,
     required double salaryAmount,
     required String password,
+    String? shiftId,
   }) async {
     final response = await _client.functions.invoke(
       'create-employee',
@@ -27,6 +28,7 @@ class EmployeesRepository {
         'pay_type': payType.name,
         'salary_amount': salaryAmount,
         'password': password,
+        'shift_id': shiftId,
       },
     );
     final data = response.data;
@@ -36,6 +38,30 @@ class EmployeesRepository {
       );
     }
     return data['login_email'] as String;
+  }
+
+  Future<void> assignShift({
+    required String organisationId,
+    required String employeeId,
+    required String? shiftId,
+  }) async {
+    await _client
+        .from('employees')
+        .update({'shift_id': shiftId})
+        .eq('id', employeeId)
+        .eq('organisation_id', organisationId);
+  }
+
+  Future<void> setEmploymentStatus({
+    required String organisationId,
+    required String employeeId,
+    required EmploymentStatus status,
+  }) async {
+    await _client
+        .from('employees')
+        .update({'employment_status': status.name})
+        .eq('id', employeeId)
+        .eq('organisation_id', organisationId);
   }
 
   Future<List<Employee>> employeesForOrganisation(String organisationId) async {
@@ -64,6 +90,7 @@ class EmployeesRepository {
       loginId: row['login_id'] as String?,
       loginEmail: row['login_email'] as String?,
       hireDate: DateTime.tryParse(row['hire_date'] as String? ?? ''),
+      shiftId: row['shift_id'] as String?,
     );
   }
 

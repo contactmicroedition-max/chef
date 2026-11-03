@@ -36,6 +36,59 @@ void main() {
     expect(selectedDate, DateTime(2026, 10, 14));
   });
 
+  testWidgets(
+    'calendar marks days red only for two distinct fully approved shifts',
+    (tester) async {
+      AttendanceRecord record({
+        required int day,
+        required String id,
+        required String shiftId,
+        String approvalStatus = 'approved',
+      }) {
+        return AttendanceRecord(
+          id: id,
+          employeeId: 'employee-1',
+          organisationId: 'organisation-1',
+          date: DateTime(2026, 10, day),
+          clockIn: DateTime(2026, 10, day, 8),
+          clockOut: DateTime(2026, 10, day, 16),
+          shiftId: shiftId,
+          approvalStatus: approvalStatus,
+        );
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: AttendanceCalendar(
+              records: [
+                record(day: 14, id: 'approved-1', shiftId: 'morning'),
+                record(day: 14, id: 'approved-2', shiftId: 'evening'),
+                record(day: 15, id: 'pending-1', shiftId: 'morning'),
+                record(
+                  day: 15,
+                  id: 'pending-2',
+                  shiftId: 'evening',
+                  approvalStatus: 'pending',
+                ),
+                record(day: 16, id: 'same-shift-1', shiftId: 'morning'),
+                record(day: 16, id: 'same-shift-2', shiftId: 'morning'),
+              ],
+              selectedDate: DateTime(2026, 10, 1),
+              onSelected: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      final onError = ThemeData().colorScheme.onError;
+      expect(tester.widget<Text>(find.text('14')).style?.color, onError);
+      expect(tester.widget<Text>(find.text('15')).style?.color, isNull);
+      expect(tester.widget<Text>(find.text('16')).style?.color, isNull);
+      expect(find.text('Two approved shifts'), findsOneWidget);
+    },
+  );
+
   testWidgets('advance table paginates at ten rows', (tester) async {
     final advances = List.generate(
       11,
@@ -77,7 +130,7 @@ void main() {
         date: DateTime(2026, 10, 1 + index),
         clockIn: DateTime(2026, 10, 1 + index, 8),
         clockOut: DateTime(2026, 10, 1 + index, 16),
-        status: 'shift-$index',
+        approvalStatus: 'shift-$index',
       ),
     );
 

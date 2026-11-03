@@ -54,6 +54,53 @@ function localShiftDate(value: Date, timeZone: string): string {
   return `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
 }
 
+function localSecondOfDay(value: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(value);
+  const timeParts = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+  return (
+    Number(timeParts.hour) * 3600 +
+    Number(timeParts.minute) * 60 +
+    Number(timeParts.second)
+  );
+}
+
+function timeToSecondOfDay(value: string): number {
+  const [hour, minute, second = 0] = value.split(":").map(Number);
+  if (
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    !Number.isInteger(second) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59 ||
+    second < 0 ||
+    second > 59
+  ) {
+    throw new Error("The assigned shift has an invalid time.");
+  }
+  return hour * 3600 + minute * 60 + second;
+}
+
+function isCurrentlyWithinShift(
+  now: Date,
+  timeZone: string,
+  startTime: string,
+  endTime: string,
+): boolean {
+  const localSecond = localSecondOfDay(now, timeZone);
+  return localSecond >= timeToSecondOfDay(startTime) &&
+    localSecond <= timeToSecondOfDay(endTime);
+}
+
 async function getFirebaseAccessToken(
   account: FirebaseServiceAccount,
 ): Promise<string> {
@@ -87,10 +134,17 @@ async function getFirebaseAccessToken(
   return result.access_token;
 }
 
-async function notifyOwners(
+async function notifyAdmins(
   adminClient: ReturnType<typeof createClient>,
   organisationId: string,
   action: "clock_in" | "clock_out",
+  approvalStatus: "pending" | "approved",
+  employeeUserId: string,
+  mismatchDetails?: {
+    employeeName: string;
+    assignedShiftName: string;
+    currentShiftName: string;
+  },
 ): Promise<{ sent: boolean; message: string }> {
   const serviceAccountJson = Deno.env.get("FIREBASE_SERVICE_ACCOUNT_JSON");
   if (!serviceAccountJson) {
@@ -110,40 +164,62 @@ async function notifyOwners(
     return { sent: false, message: "FCM server configuration is incomplete." };
   }
 
-  const { data: owners, error: ownersError } = await adminClient
+  const { data: admins, error: adminsError } = await adminClient
     .from("organisation_members")
     .select("user_id")
     .eq("organisation_id", organisationId)
-    .eq("role", "owner");
-  if (ownersError) {
-    console.error("Could not load organisation owners for push:", ownersError);
-    return { sent: false, message: "Could not load the owner notification target." };
+    .in("role", ["owner", "manager"]);
+  if (adminsError) {
+    console.error("Could not load organisation admins for push:", adminsError);
+    return { sent: false, message: "Could not load admin notification targets." };
   }
-  const ownerIds = (owners ?? []).map((owner) => owner.user_id as string);
-  if (ownerIds.length === 0) {
-    return { sent: false, message: "No owner account is linked to this organisation." };
+  const adminIds = [
+    ...new Set((admins ?? []).map((admin) => admin.user_id as string)),
+  ];
+  const notifyEmployee =
+    action === "clock_in" && approvalStatus === "pending";
+  if (adminIds.length === 0 && !notifyEmployee) {
+    return { sent: false, message: "No admin account is linked to this organisation." };
+  }
+  const notificationUserIds = [
+    ...new Set([
+      ...adminIds,
+      ...(notifyEmployee ? [employeeUserId] : []),
+    ]),
+  ];
+  if (notificationUserIds.length === 0) {
+    return { sent: false, message: "No notification recipients are available." };
   }
 
   const { data: devices, error: devicesError } = await adminClient
     .from("user_push_tokens")
-    .select("token")
-    .in("user_id", ownerIds);
+    .select("token, user_id")
+    .in("user_id", notificationUserIds);
   if (devicesError) {
-    console.error("Could not load owner push devices:", devicesError);
-    return { sent: false, message: "Could not load owner notification devices." };
+    console.error("Could not load attendance push devices:", devicesError);
+    return { sent: false, message: "Could not load notification devices." };
   }
-  const tokens = [...new Set((devices ?? []).map((device) => device.token as string))];
-  if (tokens.length === 0) {
+  const uniqueDevices = [
+    ...new Map(
+      (devices ?? []).map((device) => [
+        device.token as string,
+        { token: device.token as string, userId: device.user_id as string },
+      ]),
+    ).values(),
+  ];
+  if (uniqueDevices.length === 0) {
     return {
       sent: false,
-      message: "No owner device has registered for push notifications yet.",
+      message: "No recipient device has registered for push notifications yet.",
     };
   }
 
   try {
     const accessToken = await getFirebaseAccessToken(account);
     const results = await Promise.all(
-      tokens.map(async (token) => {
+      uniqueDevices.map(async (device) => {
+        const isEmployeeAlert = device.userId === employeeUserId &&
+          action === "clock_in" && approvalStatus === "pending";
         const response = await fetch(
           `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`,
           {
@@ -154,12 +230,25 @@ async function notifyOwners(
             },
             body: JSON.stringify({
               message: {
-                token,
+                token: device.token,
                 notification: {
-                  title: "CHEF attendance update",
-                  body: action === "clock_in"
+                  title: isEmployeeAlert
+                    ? "Clock-in outside your assigned shift"
+                    : action === "clock_in" && approvalStatus === "pending"
+                    ? "Attendance needs approval"
+                    : "CHEF attendance update",
+                  body: isEmployeeAlert
+                    ? `You are assigned to ${mismatchDetails?.assignedShiftName ?? "another shift"}, but clocked in during ${mismatchDetails?.currentShiftName ?? "a different shift"}. Your attendance needs admin approval.`
+                    : action === "clock_in" && approvalStatus === "pending"
+                    ? `${mismatchDetails?.employeeName ?? "An employee"} is assigned to ${mismatchDetails?.assignedShiftName ?? "another shift"} but clocked in during ${mismatchDetails?.currentShiftName ?? "a different shift"}. Review attendance.`
+                    : action === "clock_in"
                     ? "An employee clocked in."
                     : "An employee clocked out.",
+                },
+                data: {
+                  organisation_id: organisationId,
+                  action,
+                  approval_status: approvalStatus,
                 },
                 android: { priority: "HIGH" },
               },
@@ -168,7 +257,7 @@ async function notifyOwners(
         );
         if (!response.ok) {
           const errorBody = await response.text();
-          console.error("FCM rejected an owner notification:", errorBody);
+          console.error("FCM rejected an attendance notification:", errorBody);
           return false;
         }
         return true;
@@ -176,11 +265,14 @@ async function notifyOwners(
     );
     const sentCount = results.filter(Boolean).length;
     return sentCount > 0
-      ? { sent: true, message: `Notification sent to ${sentCount} owner device(s).` }
-      : { sent: false, message: "FCM could not deliver to any owner device." };
+      ? {
+          sent: true,
+          message: `Notification sent to ${sentCount} device(s).`,
+        }
+      : { sent: false, message: "FCM could not deliver to any recipient device." };
   } catch (error) {
-    console.error("Owner push notification failed:", error);
-    return { sent: false, message: "The owner push notification could not be sent." };
+    console.error("Attendance push notification failed:", error);
+    return { sent: false, message: "Attendance push notifications could not be sent." };
   }
 }
 
@@ -275,7 +367,7 @@ Deno.serve(async (request: Request) => {
 
   const { data: employee, error: employeeError } = await adminClient
     .from("employees")
-    .select("id, full_name, employment_status")
+    .select("id, full_name, employment_status, shift_id")
     .eq("id", membership.employee_id)
     .eq("organisation_id", organisationId)
     .maybeSingle();
@@ -285,6 +377,11 @@ Deno.serve(async (request: Request) => {
   }
   if (!employee || employee.employment_status !== "active") {
     return respond(403, { error: "Only active employees can record shifts." });
+  }
+  if (action === "clock_in" && !employee.shift_id) {
+    return respond(409, {
+      error: "You need an assigned shift before you can clock in. Contact an admin.",
+    });
   }
 
   const { data: organisation, error: organisationError } = await adminClient
@@ -353,25 +450,99 @@ Deno.serve(async (request: Request) => {
 
   const now = new Date();
   const timestamp = now.toISOString();
-  const shift = action === "clock_in"
-    ? await adminClient
-      .from("attendance_records")
-      .insert({
-        organisation_id: organisationId,
-        employee_id: employee.id,
-        shift_date: localShiftDate(now, organisation.timezone || "UTC"),
-        clock_in: timestamp,
-        status: "approved",
-      })
-      .select("id")
-      .single()
-    : await adminClient
+  let approvalStatus: "pending" | "approved" = "approved";
+  let shift: { data: { id: string } | null; error: { code?: string } | null };
+  let assignedShiftName: string | undefined;
+  let currentShiftName: string | undefined;
+  if (action === "clock_in") {
+    const { data: organisationShifts, error: shiftsError } = await adminClient
+      .from("organisation_shifts")
+      .select("id, name, start_time, end_time")
+      .eq("organisation_id", organisationId)
+      .order("start_time");
+    if (shiftsError) {
+      console.error("Could not load organisation shifts:", shiftsError);
+      return respond(500, { error: "Could not load organisation shifts." });
+    }
+    const assignedShift = (organisationShifts ?? []).find(
+      (item) => item.id === employee.shift_id,
+    );
+    if (!assignedShift) {
+      return respond(409, {
+        error: "The assigned shift no longer exists. Contact an admin.",
+      });
+    }
+
+    let autoClosePrevious = false;
+    let attendanceShiftId: string | null = null;
+    try {
+      const timeZone = organisation.timezone || "UTC";
+      const activeShifts = (organisationShifts ?? []).filter((item) =>
+        isCurrentlyWithinShift(
+          now,
+          timeZone,
+          item.start_time,
+          item.end_time,
+        )
+      );
+      const currentShift = activeShifts[0];
+      if (!currentShift) {
+        return respond(409, {
+          error: "No organisation shift is active right now. You can clock in only while a scheduled shift is in progress.",
+        });
+      }
+      attendanceShiftId = currentShift.id;
+      assignedShiftName = assignedShift.name;
+      currentShiftName = currentShift.name;
+      approvalStatus =
+        currentShift?.id === assignedShift.id ? "approved" : "pending";
+    } catch (error) {
+      console.error("Could not evaluate employee shift time:", error);
+      return respond(500, { error: "Could not verify the assigned shift time zone." });
+    }
+    autoClosePrevious = approvalStatus === "approved";
+
+    const { data: clockInResult, error: clockInError } = await adminClient.rpc(
+      "record_employee_clock_in",
+      {
+        p_organisation_id: organisationId,
+        p_employee_id: employee.id,
+        p_shift_id: attendanceShiftId,
+        p_assigned_shift_id: employee.shift_id,
+        p_shift_date: localShiftDate(now, organisation.timezone || "UTC"),
+        p_clock_in: timestamp,
+        p_approval_status: approvalStatus,
+        p_auto_close_previous: autoClosePrevious,
+      },
+    );
+    if (clockInError) {
+      console.error("Could not record employee clock-in:", clockInError);
+      return respond(
+        clockInError.code === "23505" ? 409 : 500,
+        {
+          error: clockInError.message.includes("already has an open")
+            ? "You already have an open shift. Clock out first."
+            : clockInError.code === "23505"
+            ? "A shift was started already. Refresh and try again."
+            : "Could not record the shift.",
+        },
+      );
+    }
+    shift = {
+      data: clockInResult && typeof clockInResult.attendance_id === "string"
+        ? { id: clockInResult.attendance_id }
+        : null,
+      error: null,
+    };
+  } else {
+    shift = await adminClient
       .from("attendance_records")
       .update({ clock_out: timestamp })
       .eq("id", openShift!.id)
       .is("clock_out", null)
       .select("id")
       .maybeSingle();
+  }
 
   if (shift.error || !shift.data) {
     console.error("Could not record employee shift:", shift.error);
@@ -388,14 +559,26 @@ Deno.serve(async (request: Request) => {
     );
   }
 
-  const notification = await notifyOwners(
+  const notification = await notifyAdmins(
     adminClient,
     organisationId,
     action,
+    approvalStatus,
+    userData.user.id,
+    approvalStatus === "pending"
+      ? {
+          employeeName: employee.full_name,
+          assignedShiftName: assignedShiftName ?? "another shift",
+          currentShiftName: currentShiftName ?? "a different shift",
+        }
+      : undefined,
   );
   return respond(200, {
     attendance_id: shift.data.id,
     action,
+    approval_status: approvalStatus,
+    assigned_shift_name: assignedShiftName ?? null,
+    attendance_shift_name: currentShiftName ?? null,
     notification_sent: notification.sent,
     notification_message: notification.message,
   });

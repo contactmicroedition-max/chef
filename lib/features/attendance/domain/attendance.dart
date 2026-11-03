@@ -8,6 +8,12 @@ class AttendanceRecord {
     required this.clockOut,
     this.note,
     this.status = 'approved',
+    this.approvalStatus = 'approved',
+    this.shiftId,
+    this.assignedShiftId,
+    this.shiftName,
+    this.assignedShiftName,
+    this.autoClosed = false,
   });
 
   final String id;
@@ -18,6 +24,12 @@ class AttendanceRecord {
   final DateTime? clockOut;
   final String? note;
   final String status;
+  final String approvalStatus;
+  final String? shiftId;
+  final String? assignedShiftId;
+  final String? shiftName;
+  final String? assignedShiftName;
+  final bool autoClosed;
 
   Duration get duration {
     final end = clockOut ?? clockIn;
@@ -35,6 +47,12 @@ class AttendanceRecord {
     DateTime? clockOut,
     String? note,
     String? status,
+    String? approvalStatus,
+    String? shiftId,
+    String? assignedShiftId,
+    String? shiftName,
+    String? assignedShiftName,
+    bool? autoClosed,
   }) {
     return AttendanceRecord(
       id: id ?? this.id,
@@ -45,6 +63,12 @@ class AttendanceRecord {
       clockOut: clockOut ?? this.clockOut,
       note: note ?? this.note,
       status: status ?? this.status,
+      approvalStatus: approvalStatus ?? this.approvalStatus,
+      shiftId: shiftId ?? this.shiftId,
+      assignedShiftId: assignedShiftId ?? this.assignedShiftId,
+      shiftName: shiftName ?? this.shiftName,
+      assignedShiftName: assignedShiftName ?? this.assignedShiftName,
+      autoClosed: autoClosed ?? this.autoClosed,
     );
   }
 }

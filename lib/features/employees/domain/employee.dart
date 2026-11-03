@@ -18,6 +18,7 @@ class Employee {
     this.loginId,
     this.loginEmail,
     this.hireDate,
+    this.shiftId,
   });
 
   final String id;
@@ -32,6 +33,7 @@ class Employee {
   final String? loginId;
   final String? loginEmail;
   final DateTime? hireDate;
+  final String? shiftId;
 
   double salaryForHours(double hours) {
     return payType == EmployeePayType.hourly
@@ -52,6 +54,7 @@ class Employee {
     String? loginId,
     String? loginEmail,
     DateTime? hireDate,
+    String? shiftId,
   }) {
     return Employee(
       id: id ?? this.id,
@@ -66,6 +69,7 @@ class Employee {
       loginId: loginId ?? this.loginId,
       loginEmail: loginEmail ?? this.loginEmail,
       hireDate: hireDate ?? this.hireDate,
+      shiftId: shiftId ?? this.shiftId,
     );
   }
 }

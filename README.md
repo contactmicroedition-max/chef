@@ -83,10 +83,36 @@ an administrator.
 Migration 009 adds the employee login email field and updates employee account
 storage and manager assignment to accept email addresses while preserving
 legacy ID sign-in. Deploy the employee account Edge Function after applying the
-migration: `supabase functions deploy create-employee`. It creates employee
-users through Supabase Auth's supported admin API, confirms the login email,
-then links the employee profile and membership. Deploy the updated function
-each time its source changes.
+migration: `supabase functions deploy create-employee`. The current function
+also writes optional employee shift assignments, so apply
+`supabase/migrations/20261103220700_employee_shift_assignment.sql` before
+deploying this version. It creates employee users through Supabase Auth's
+supported admin API, confirms the login email, then links the employee profile
+and membership. Deploy the updated function each time its source changes.
+
+Organisation work zones and shifts are managed through the Employees and
+Organisations screens. After the base migrations through 009 are installed,
+apply `supabase/migrations/20261031141500_organisation_zones.sql`,
+`supabase/migrations/20261031150000_employee_attendance_zone_gate.sql`, and
+`supabase/migrations/20261103220000_organisation_shifts.sql` in that order.
+Check Supabase migration history first and do not re-run migrations that are
+already applied. Shifts belong to an organisation; each is same-day only, and
+the database prevents the sum of an organisation's configured shift durations
+from exceeding 24 hours. Owners and managers can manage shifts.
+Apply `supabase/migrations/20261103220700_employee_shift_assignment.sql` after
+the shifts migration to enable optional shift assignment during employee
+creation and later assignment from the Employees screen. Employee archive
+preserves attendance and payroll history; employees must clock out before
+they can be archived.
+Apply `supabase/migrations/20261103221500_shift_attendance_approval.sql` after
+the assignment migration, then apply
+`supabase/migrations/20261103224100_attendance_actual_shift.sql` before
+`supabase/migrations/20261104001000_attendance_shift_review_fixes.sql` before
+deploying the updated `employee-attendance` function. These migrations add
+shift-linked approval status, review metadata, and actual/assigned shift IDs.
+The later migrations backfill legacy assignments, require a currently active
+shift to clock in, and set a rejected record's clock-out equal to its clock-in
+so rejected hours are zero.
 
 Hourly salary is calculated as the hourly rate times hours recorded in the
 current calendar month. Monthly-salary employees receive the fixed amount
@@ -103,8 +129,19 @@ employee can view their own advance history and timestamp in their panel.
 
 The employee Attendance screen provides **Clock in** and **Clock out**. Times
 are recorded by the server, only for the signed-in employee, and only one open
-shift is allowed at a time. Each successful action sends a push notification
-to the organisation owner. Deploy the attendance function with
+shift is allowed at a time. An employee must have an assigned organisation
+shift before clocking in. Clock-ins are approved automatically only when the
+employee's assigned shift matches the shift currently in progress, based on the
+organisation timezone. Clock-ins during a different active shift are recorded
+as pending for an owner or manager to approve or reject. Clock-ins are rejected
+if no organisation shift is active.
+Attendance records are grouped under the shift they clocked into, with the
+current (or next upcoming) shift shown first. Pending clock-ins appear under
+the shift that was in progress when the employee clocked in, with approval
+actions.
+Employees and organisation admins need push permission enabled: when a clock-in
+needs approval, the employee and admins receive a named alert that identifies
+the assigned shift and the shift clocked into. Deploy the attendance function with
 `supabase functions deploy employee-attendance`. Push delivery requires Firebase
 setup:
 
@@ -118,15 +155,13 @@ setup:
    Firebase Cloud Messaging messages. In Supabase Dashboard > Edge Function
    Secrets, create `FIREBASE_SERVICE_ACCOUNT_JSON` and paste the full JSON
    there. Never commit or share this private key.
-3. Rebuild and install the app. The owner must sign in on their Android device
-   and allow notifications once so CHEF can register that device for pushes.
-   The employee can then clock in/out; the owner receives notifications even
-   when CHEF is closed. Push text is generic and does not include the
-   employee's name or shift time.
+3. Rebuild and install the app. Owners, managers, and employees must sign in
+   on their Android devices and allow notifications so CHEF can register those
+   devices for pushes. Notifications can arrive when CHEF is closed.
 
-The attendance is still saved if FCM is not configured or no owner device has
-registered. The employee sees a message that notification delivery failed; set
-up Firebase and have the owner sign in again to enable delivery.
+Attendance is still saved if FCM is not configured or no recipient device has
+registered. The app reports when notification delivery fails; configure
+Firebase and have each recipient sign in again to enable delivery.
 
 An owner can promote an employee account to manager using the employee's
 8-digit ID and the role button in Employees. The app does not provide email

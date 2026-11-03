@@ -7,10 +7,16 @@ import 'package:zone/features/organisations/domain/organisation_zone.dart';
 class EmployeeAttendanceResult {
   const EmployeeAttendanceResult({
     required this.notificationSent,
+    required this.approvalStatus,
+    this.assignedShiftName,
+    this.attendanceShiftName,
     this.notificationMessage,
   });
 
   final bool notificationSent;
+  final String approvalStatus;
+  final String? assignedShiftName;
+  final String? attendanceShiftName;
   final String? notificationMessage;
 }
 
@@ -44,14 +50,24 @@ class AttendanceRepository {
       if (details is Map && details['error'] is String) {
         throw StateError(details['error'] as String);
       }
-      throw StateError(
-        'Could not record attendance (HTTP ${error.status}).',
-      );
+      throw StateError('Could not record attendance (HTTP ${error.status}).');
     }
     final result = response.data;
     final message = result is Map ? result['notification_message'] : null;
+    final approvalStatus = result is Map && result['approval_status'] is String
+        ? result['approval_status'] as String
+        : 'approved';
     return EmployeeAttendanceResult(
       notificationSent: result is Map && result['notification_sent'] == true,
+      approvalStatus: approvalStatus,
+      assignedShiftName:
+          result is Map && result['assigned_shift_name'] is String
+          ? result['assigned_shift_name'] as String
+          : null,
+      attendanceShiftName:
+          result is Map && result['attendance_shift_name'] is String
+          ? result['attendance_shift_name'] as String
+          : null,
       notificationMessage: message is String ? message : null,
     );
   }
@@ -78,18 +94,68 @@ class AttendanceRepository {
   Future<List<AttendanceRecord>> attendanceForOrganisation(
     String organisationId,
   ) async {
-    final rows = await _client
-        .from('attendance_records')
-        .select()
-        .eq('organisation_id', organisationId)
-        .order('shift_date', ascending: false)
-        .limit(200);
-    return List<Map<String, dynamic>>.from(rows)
-        .map(_attendanceFromRow)
-        .toList();
+    final results = await Future.wait([
+      _client
+          .from('attendance_records')
+          .select()
+          .eq('organisation_id', organisationId)
+          .order('shift_date', ascending: false)
+          .limit(200),
+      _client
+          .from('attendance_records')
+          .select()
+          .eq('organisation_id', organisationId)
+          .eq('approval_status', 'pending')
+          .order('shift_date', ascending: false),
+      _client
+          .from('organisation_shifts')
+          .select('id, name')
+          .eq('organisation_id', organisationId),
+    ]);
+    final shiftNames = {
+      for (final row in List<Map<String, dynamic>>.from(results[2]))
+        row['id'] as String: row['name'] as String,
+    };
+    final attendanceById = {
+      for (final row in List<Map<String, dynamic>>.from(results[0]))
+        row['id'] as String: row,
+      for (final row in List<Map<String, dynamic>>.from(results[1]))
+        row['id'] as String: row,
+    };
+    final records = attendanceById.values.toList()
+      ..sort((first, second) {
+        final dateComparison = (second['shift_date'] as String).compareTo(
+          first['shift_date'] as String,
+        );
+        return dateComparison != 0
+            ? dateComparison
+            : (second['clock_in'] as String).compareTo(
+                first['clock_in'] as String,
+              );
+      });
+    return records.map((row) => _attendanceFromRow(row, shiftNames)).toList();
   }
 
-  AttendanceRecord _attendanceFromRow(Map<String, dynamic> row) {
+  Future<void> reviewAttendanceRecord({
+    required String attendanceId,
+    required bool approve,
+  }) async {
+    await _client.rpc(
+      'review_attendance_record',
+      params: {
+        'p_attendance_id': attendanceId,
+        'p_approval_status': approve ? 'approved' : 'rejected',
+      },
+    );
+  }
+
+  AttendanceRecord _attendanceFromRow(
+    Map<String, dynamic> row,
+    Map<String, String> shiftNames,
+  ) {
+    final shiftId = row['shift_id'] as String?;
+    final assignedShiftId = row['assigned_shift_id'] as String?;
+    final displayedShiftId = shiftId ?? assignedShiftId;
     return AttendanceRecord(
       id: row['id'] as String,
       employeeId: row['employee_id'] as String,
@@ -101,6 +167,14 @@ class AttendanceRepository {
           : DateTime.parse(row['clock_out'] as String),
       note: row['note'] as String?,
       status: row['status'] as String? ?? 'approved',
+      approvalStatus: row['approval_status'] as String? ?? 'approved',
+      shiftId: shiftId,
+      assignedShiftId: assignedShiftId,
+      shiftName: displayedShiftId == null ? null : shiftNames[displayedShiftId],
+      assignedShiftName: assignedShiftId == null
+          ? null
+          : shiftNames[assignedShiftId],
+      autoClosed: row['auto_closed'] as bool? ?? false,
     );
   }
 }

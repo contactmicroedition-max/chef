@@ -51,6 +51,7 @@ class _OrganisationZoneScreenState
   bool _isDrawing = true;
   bool _mapReady = false;
   int _searchGeneration = 0;
+  LatLng? _currentPosition;
 
   bool get _isEditing => widget.organisationId != null;
 
@@ -85,7 +86,7 @@ class _OrganisationZoneScreenState
         _zoneController.addPoint(point);
       }
       if (_mapReady && zone.points.isNotEmpty) {
-        _mapController.move(zone.points.first, 16);
+        _mapController.move(_currentPosition ?? zone.points.first, 16);
       }
     } catch (error) {
       if (mounted) setState(() => _errorMessage = error.toString());
@@ -97,7 +98,8 @@ class _OrganisationZoneScreenState
   void _onMapReady() {
     _mapReady = true;
     final points = _zoneController.points;
-    if (points.isNotEmpty) _mapController.move(points.first, 16);
+    final center = _currentPosition ?? points.firstOrNull;
+    if (center != null) _mapController.move(center, 16);
   }
 
   void _scheduleSearch() {
@@ -179,7 +181,10 @@ class _OrganisationZoneScreenState
         );
       }
       final position = await Geolocator.getCurrentPosition();
-      _mapController.move(LatLng(position.latitude, position.longitude), 17);
+      if (!mounted) return;
+      final currentPosition = LatLng(position.latitude, position.longitude);
+      setState(() => _currentPosition = currentPosition);
+      if (_mapReady) _mapController.move(currentPosition, 17);
     } catch (error) {
       if (mounted) setState(() => _errorMessage = error.toString());
     }
@@ -404,6 +409,7 @@ class _OrganisationZoneScreenState
                   zoneController: _zoneController,
                   isDrawing: _isDrawing,
                   onMapReady: _onMapReady,
+                  currentPosition: _currentPosition,
                 ),
                 PositionedDirectional(
                   start: 16,

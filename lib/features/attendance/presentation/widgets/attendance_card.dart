@@ -14,10 +14,13 @@ class AttendanceCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
-        title: Text('Shift ${formatDate(record.date)}'),
+        title: Text(
+          '${record.shiftName ?? 'Shift'} ${formatDate(record.date)}',
+        ),
         subtitle: Text(
           '${clockIn.hour.toString().padLeft(2, '0')}:${clockIn.minute.toString().padLeft(2, '0')} - '
-          '${clockOut?.hour.toString().padLeft(2, '0') ?? '--'}:${clockOut?.minute.toString().padLeft(2, '0') ?? '--'}',
+          '${clockOut?.hour.toString().padLeft(2, '0') ?? '--'}:${clockOut?.minute.toString().padLeft(2, '0') ?? '--'}'
+          '${record.autoClosed ? '\nAutomatically clocked out at shift transition' : ''}',
         ),
         trailing: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -27,7 +30,10 @@ class AttendanceCard extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 2),
-            Text(record.status, style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              record.approvalStatus,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ],
         ),
       ),

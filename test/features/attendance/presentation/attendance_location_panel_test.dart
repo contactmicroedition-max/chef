@@ -32,6 +32,7 @@ void main() {
     required Position? position,
     required bool isInsideZone,
     bool hasOpenShift = false,
+    bool hasAssignedShift = true,
   }) {
     return MaterialApp(
       home: Scaffold(
@@ -42,6 +43,7 @@ void main() {
           isLoading: false,
           isRecording: false,
           hasOpenShift: hasOpenShift,
+          hasAssignedShift: hasAssignedShift,
           errorMessage: null,
           onRefreshLocation: () {},
           onRecordShift: (clockIn, currentPosition) async {},
@@ -103,6 +105,27 @@ void main() {
     expect(button.onPressed, isNull);
   });
 
+  testWidgets('employee without an assigned shift cannot clock in', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildPanel(
+        position: insidePosition,
+        isInsideZone: true,
+        hasAssignedShift: false,
+      ),
+    );
+
+    expect(
+      find.text('You need an assigned shift before you can clock in.'),
+      findsOneWidget,
+    );
+    final button = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Clock in'),
+    );
+    expect(button.onPressed, isNull);
+  });
+
   testWidgets('clock-out remains enabled outside the zone', (tester) async {
     bool? submittedClockIn;
     await tester.pumpWidget(
@@ -115,6 +138,7 @@ void main() {
             isLoading: false,
             isRecording: false,
             hasOpenShift: true,
+            hasAssignedShift: false,
             errorMessage: null,
             onRefreshLocation: () {},
             onRecordShift: (clockIn, position) async {

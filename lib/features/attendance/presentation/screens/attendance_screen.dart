@@ -8,6 +8,7 @@ import 'package:zone/core/utils/formatters.dart';
 import 'package:zone/core/widgets/paginated_list.dart';
 import 'package:zone/features/attendance/presentation/widgets/attendance_card.dart';
 import 'package:zone/features/attendance/presentation/widgets/attendance_location_panel.dart';
+import 'package:zone/features/attendance/presentation/widgets/shift_attendance_groups.dart';
 import 'package:zone/features/attendance/data/attendance_repository.dart';
 import 'package:zone/features/employees/domain/employee.dart';
 import 'package:zone/features/organisations/domain/organisation_zone.dart';
@@ -28,6 +29,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
   OrganisationZone? _zone;
   Position? _position;
   StreamSubscription<Position>? _positionSubscription;
+  final _shiftGroupsKey = GlobalKey<ShiftAttendanceGroupsState>();
 
   @override
   void dispose() {
@@ -57,7 +59,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
         SnackBar(
           content: Text(
             notificationMessage == null
-                ? '$action successfully. The owner was notified.'
+                ? '$action successfully. The organisation admins were notified.'
                 : '$action successfully. $notificationMessage',
           ),
         ),
@@ -68,6 +70,25 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
           .showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
       if (mounted) setState(() => _isRecording = false);
+    }
+  }
+
+  Future<void> _refreshAttendance() async {
+    try {
+      await ref.read(appStateProvider.notifier).refreshAttendance();
+      await _shiftGroupsKey.currentState?.reload();
+      if (!mounted) return;
+      if (ref.read(appStateProvider).currentRole == EmployeeRole.employee) {
+        final organisationId = ref
+            .read(appStateProvider)
+            .selectedOrganisationId;
+        if (organisationId != null) await _loadLocationFor(organisationId);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not refresh attendance: $error')),
+      );
     }
   }
 
@@ -169,6 +190,9 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     }
 
     final employeeId = state.currentEmployeeId;
+    final employee = state.employees
+        .where((item) => item.id == employeeId)
+        .firstOrNull;
     final openShift = state.attendance
         .where(
           (record) =>
@@ -181,63 +205,99 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
         ? state.attendance.where((r) => r.employeeId == employeeId).toList()
         : state.attendance;
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text('Attendance', style: Theme.of(context).textTheme.headlineSmall),
-        if (state.currentRole == EmployeeRole.employee &&
-            state.currentEmployeeId != null) ...[
-          const SizedBox(height: 12),
-          if (openShift != null)
-            Card(
-              color: Theme.of(context).colorScheme.primaryContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    const Icon(Icons.timer_rounded),
-                    const SizedBox(width: 8),
-                    Text('Shift started ${formatDateTime(openShift.clockIn)}'),
-                  ],
+    return RefreshIndicator(
+      onRefresh: _refreshAttendance,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text('Attendance', style: Theme.of(context).textTheme.headlineSmall),
+          if (state.currentRole == EmployeeRole.employee &&
+              state.currentEmployeeId != null) ...[
+            const SizedBox(height: 12),
+            if (openShift != null)
+              Card(
+                color: openShift.approvalStatus == 'pending'
+                    ? Theme.of(context).colorScheme.errorContainer
+                    : Theme.of(context).colorScheme.primaryContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            openShift.approvalStatus == 'pending'
+                                ? Icons.warning_amber_rounded
+                                : Icons.timer_rounded,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Shift started ${formatDateTime(openShift.clockIn)}',
+                          ),
+                        ],
+                      ),
+                      if (openShift.approvalStatus == 'pending') ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'You are assigned to ${openShift.assignedShiftName ?? 'another shift'}, '
+                          'but clocked in during ${openShift.shiftName ?? 'a different shift'}. '
+                          'An admin must approve your attendance.',
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ),
+            const SizedBox(height: 8),
+            AttendanceLocationPanel(
+              zone: _zone,
+              position: _position,
+              isInsideZone:
+                  _zone?.containsPoint(
+                    _position == null
+                        ? const LatLng(0, 0)
+                        : LatLng(_position!.latitude, _position!.longitude),
+                  ) ??
+                  false,
+              isLoading: _isLocationLoading,
+              isRecording: _isRecording,
+              hasOpenShift: openShift != null,
+              hasAssignedShift: employee?.shiftId != null,
+              errorMessage: _locationError,
+              onRefreshLocation: () {
+                if (organisationId != null) _loadLocationFor(organisationId);
+              },
+              onRecordShift: _recordShift,
             ),
-          const SizedBox(height: 8),
-          AttendanceLocationPanel(
-            zone: _zone,
-            position: _position,
-            isInsideZone:
-                _zone?.containsPoint(
-                  _position == null
-                      ? const LatLng(0, 0)
-                      : LatLng(_position!.latitude, _position!.longitude),
-                ) ??
-                false,
-            isLoading: _isLocationLoading,
-            isRecording: _isRecording,
-            hasOpenShift: openShift != null,
-            errorMessage: _locationError,
-            onRefreshLocation: () {
-              if (organisationId != null) _loadLocationFor(organisationId);
-            },
-            onRecordShift: _recordShift,
-          ),
+          ],
+          const SizedBox(height: 12),
+          if (state.currentRole == EmployeeRole.owner ||
+              state.currentRole == EmployeeRole.manager)
+            organisationId == null
+                ? const SizedBox.shrink()
+                : ShiftAttendanceGroups(
+                    key: _shiftGroupsKey,
+                    organisationId: organisationId,
+                    records: records,
+                    employees: state.employees,
+                  )
+          else if (records.isEmpty)
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('No attendance records yet.'),
+              ),
+            )
+          else
+            PaginatedList(
+              items: records,
+              itemBuilder: (context, record, index) =>
+                  AttendanceCard(record: record),
+            ),
         ],
-        const SizedBox(height: 12),
-        if (records.isEmpty)
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('No attendance records yet.'),
-            ),
-          )
-        else
-          PaginatedList(
-            items: records,
-            itemBuilder: (context, record, index) =>
-                AttendanceCard(record: record),
-          ),
-      ],
+      ),
     );
   }
 }

@@ -6,9 +6,9 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class PushNotificationService {
-  static String? _ownerUserId;
+  static String? _registeredUserId;
   static StreamSubscription<String>? _tokenRefreshSubscription;
-  static String? _registeredOwnerId;
+  static String? _registeredUserForToken;
   static bool _firebaseInitialized = false;
 
   static bool get isEnabled => _firebaseInitialized;
@@ -22,23 +22,23 @@ class PushNotificationService {
     _firebaseInitialized = true;
   }
 
-  static Future<void> registerOwnerDevice({
+  static Future<void> registerDevice({
     required SupabaseClient client,
     required String userId,
   }) async {
     if (!isEnabled || kIsWeb) return;
-    _ownerUserId = userId;
-    if (_registeredOwnerId == userId) return;
+    _registeredUserId = userId;
+    if (_registeredUserForToken == userId) return;
 
     final messaging = FirebaseMessaging.instance;
     // FCM HTTP v1 requires the registration token rather than the Firebase Installation ID.
     // ignore: deprecated_member_use
     _tokenRefreshSubscription ??= messaging.onTokenRefresh.listen(
       (token) {
-        final currentOwnerId = _ownerUserId;
-        if (currentOwnerId == null) return;
+        final currentUserId = _registeredUserId;
+        if (currentUserId == null) return;
         unawaited(
-          _saveToken(client, currentOwnerId, token).catchError((
+          _saveToken(client, currentUserId, token).catchError((
             Object error,
             StackTrace stackTrace,
           ) {
@@ -60,7 +60,7 @@ class PushNotificationService {
       throw StateError('Firebase did not provide an FCM registration token.');
     }
     await _saveToken(client, userId, token);
-    _registeredOwnerId = userId;
+    _registeredUserForToken = userId;
   }
 
   static Future<void> _saveToken(

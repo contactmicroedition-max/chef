@@ -33,7 +33,8 @@ class EmployeeSalariesScreen extends ConsumerWidget {
               (record) =>
                   record.employeeId == employee.id &&
                   record.date.year == now.year &&
-                  record.date.month == now.month,
+                  record.date.month == now.month &&
+                  record.approvalStatus == 'approved',
             );
             final hours = records.fold<double>(
               0,

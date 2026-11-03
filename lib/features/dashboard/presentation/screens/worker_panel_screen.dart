@@ -34,7 +34,9 @@ class _WorkerPanelScreenState extends ConsumerState<WorkerPanelScreen> {
     final monthRecords = attendance
         .where(
           (record) =>
-              record.date.year == now.year && record.date.month == now.month,
+              record.date.year == now.year &&
+              record.date.month == now.month &&
+              record.approvalStatus == 'approved',
         )
         .toList();
     final selectedDayRecords =

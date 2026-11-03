@@ -14,6 +14,7 @@ class AttendanceLocationPanel extends StatefulWidget {
     required this.isLoading,
     required this.isRecording,
     required this.hasOpenShift,
+    required this.hasAssignedShift,
     required this.errorMessage,
     required this.onRefreshLocation,
     required this.onRecordShift,
@@ -25,6 +26,7 @@ class AttendanceLocationPanel extends StatefulWidget {
   final bool isLoading;
   final bool isRecording;
   final bool hasOpenShift;
+  final bool hasAssignedShift;
   final String? errorMessage;
   final VoidCallback onRefreshLocation;
   final Future<void> Function(bool clockIn, Position? position) onRecordShift;
@@ -85,7 +87,8 @@ class _AttendanceLocationPanelState extends State<AttendanceLocationPanel> {
         ? _pointFromPosition(widget.position!)
         : widget.zone?.points.firstOrNull ?? const LatLng(36.8, 10.18);
     final canClockIn =
-        widget.hasOpenShift || (isInside && widget.position != null);
+        widget.hasOpenShift ||
+        (widget.hasAssignedShift && isInside && widget.position != null);
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -204,11 +207,17 @@ class _AttendanceLocationPanelState extends State<AttendanceLocationPanel> {
                     widget.position == null
                         ? widget.hasOpenShift
                               ? 'Your shift is open. You can clock out from here.'
+                              : !widget.hasAssignedShift
+                              ? 'You need an assigned shift before you can clock in.'
                               : 'Location is required to clock in.'
                         : isInside
-                        ? 'You are inside the work zone.'
+                        ? widget.hasAssignedShift || widget.hasOpenShift
+                              ? 'You are inside the work zone.'
+                              : 'You need an assigned shift before you can clock in.'
                         : widget.hasOpenShift
                         ? 'You are outside the work zone. Clock-out is still available.'
+                        : !widget.hasAssignedShift
+                        ? 'You need an assigned shift before you can clock in.'
                         : 'You must be inside the work zone to register your presence.',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: widget.position != null && !isInside

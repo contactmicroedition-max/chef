@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:zone/core/widgets/widgets.dart';
 import 'package:zone/features/auth/domain/auth_formatters.dart';
+import 'package:zone/features/employees/data/shifts_repository.dart';
 import 'package:zone/features/employees/domain/employee.dart';
+import 'package:zone/features/employees/domain/work_shift.dart';
 import 'package:zone/providers/app_state.dart';
 
 class AddEmployeeDialog extends ConsumerStatefulWidget {
@@ -24,6 +26,19 @@ class _AddEmployeeDialogState extends ConsumerState<AddEmployeeDialog> {
   bool _obscurePassword = true;
   bool _emailEdited = false;
   EmployeePayType _payType = EmployeePayType.hourly;
+  String? _shiftId;
+  late Future<List<WorkShift>> _shiftsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    final organisationId = ref.read(appStateProvider).selectedOrganisationId;
+    _shiftsFuture = organisationId == null
+        ? Future.value(const <WorkShift>[])
+        : ref
+              .read(shiftsRepositoryProvider)
+              .shiftsForOrganisation(organisationId);
+  }
 
   void _updateGeneratedEmail(String name, String organisationName) {
     if (_emailEdited) return;
@@ -71,6 +86,7 @@ class _AddEmployeeDialogState extends ConsumerState<AddEmployeeDialog> {
             payType: _payType,
             salaryAmount: double.parse(_salaryAmount.text),
             password: _password.text,
+            shiftId: _shiftId,
           );
       _loginEmail.text = createdLoginEmail;
       if (mounted) Navigator.pop(context);
@@ -156,6 +172,54 @@ class _AddEmployeeDialogState extends ConsumerState<AddEmployeeDialog> {
                   return amount == null || !amount.isFinite || amount <= 0
                       ? 'Enter an amount greater than zero'
                       : null;
+                },
+              ),
+              FutureBuilder<List<WorkShift>>(
+                future: _shiftsFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Text(
+                      'Could not load shifts: ${snapshot.error}',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    );
+                  }
+                  final shifts = snapshot.data ?? const <WorkShift>[];
+                  return DropdownButtonFormField<String>(
+                    initialValue: _shiftId ?? '',
+                    decoration: InputDecoration(
+                      labelText: 'Shift (optional)',
+                      helperText:
+                          snapshot.connectionState == ConnectionState.waiting
+                          ? 'Loading shifts…'
+                          : shifts.isEmpty
+                          ? 'No shifts configured; assign one later.'
+                          : null,
+                    ),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: '',
+                        child: Text('No shift'),
+                      ),
+                      ...shifts.map(
+                        (shift) => DropdownMenuItem<String>(
+                          value: shift.id,
+                          child: Text(
+                            '${shift.name} (${shift.startTimeLabel}–${shift.endTimeLabel})',
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged:
+                        snapshot.connectionState == ConnectionState.waiting
+                        ? null
+                        : (value) => setState(
+                            () => _shiftId = value == null || value.isEmpty
+                                ? null
+                                : value,
+                          ),
+                  );
                 },
               ),
               TextFormField(

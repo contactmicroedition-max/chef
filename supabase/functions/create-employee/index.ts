@@ -97,6 +97,11 @@ Deno.serve(async (request: Request) => {
   const payType = body.pay_type;
   const salaryAmount = Number(body.salary_amount);
   const password = typeof body.password === "string" ? body.password : "";
+  const shiftId = body.shift_id === undefined || body.shift_id === null
+    ? null
+    : typeof body.shift_id === "string"
+    ? body.shift_id
+    : "";
 
   if (
     typeof organisationId !== "string" ||
@@ -106,7 +111,8 @@ Deno.serve(async (request: Request) => {
     (payType !== "hourly" && payType !== "monthly") ||
     !Number.isFinite(salaryAmount) ||
     salaryAmount <= 0 ||
-    password.length < 6
+    password.length < 6 ||
+    shiftId === ""
   ) {
     return respond(400, {
       error:
@@ -127,6 +133,22 @@ Deno.serve(async (request: Request) => {
   }
   if (membership?.role !== "owner") {
     return respond(403, { error: "Only the organisation owner can create employee accounts." });
+  }
+
+  if (shiftId !== null) {
+    const { data: shift, error: shiftError } = await adminClient
+      .from("organisation_shifts")
+      .select("id")
+      .eq("id", shiftId)
+      .eq("organisation_id", organisationId)
+      .maybeSingle();
+    if (shiftError) {
+      console.error("Could not verify employee shift:", shiftError);
+      return respond(500, { error: "Could not verify the selected shift." });
+    }
+    if (!shift) {
+      return respond(400, { error: "Choose a shift from this organisation." });
+    }
   }
 
   const [localPart, domain] = requestedEmail.split("@");
@@ -173,6 +195,7 @@ Deno.serve(async (request: Request) => {
         pay_type: payType,
         monthly_salary: payType === "monthly" ? salaryAmount : null,
         employment_status: "active",
+        shift_id: shiftId,
       })
       .select("id")
       .single();

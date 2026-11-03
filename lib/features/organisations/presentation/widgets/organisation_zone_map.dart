@@ -11,12 +11,14 @@ class OrganisationZoneMap extends StatefulWidget {
     required this.zoneController,
     required this.isDrawing,
     required this.onMapReady,
+    this.currentPosition,
   });
 
   final MapController mapController;
   final OrganisationZoneController zoneController;
   final bool isDrawing;
   final VoidCallback onMapReady;
+  final LatLng? currentPosition;
 
   @override
   State<OrganisationZoneMap> createState() => _OrganisationZoneMapState();
@@ -85,6 +87,27 @@ class _OrganisationZoneMapState extends State<OrganisationZoneMap> {
                         Icons.location_on,
                         color: Colors.red,
                         size: 36,
+                      ),
+                    ),
+                  ),
+                if (widget.currentPosition != null)
+                  Marker(
+                    point: widget.currentPosition!,
+                    width: 44,
+                    height: 44,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.surface,
+                          width: 2,
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.my_location_rounded,
+                        color: Theme.of(context).colorScheme.onPrimary,
+                        size: 22,
                       ),
                     ),
                   ),
