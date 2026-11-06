@@ -25,4 +25,30 @@ void main() {
     final icon = tester.widget<Icon>(find.byIcon(Icons.people_alt_rounded));
     expect(icon.color, theme.colorScheme.primary);
   });
+
+  testWidgets('long salary metric fits in a compact dashboard card', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 180,
+              height: 116,
+              child: const MetricCard(
+                title: 'Salary remaining this month',
+                value: '1,250.000 TND',
+                icon: Icons.account_balance_wallet_rounded,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Salary remaining this month'), findsOneWidget);
+    expect(find.text('1,250.000 TND'), findsOneWidget);
+  });
 }

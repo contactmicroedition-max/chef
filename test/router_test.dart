@@ -19,18 +19,15 @@ void main() {
       },
     );
 
-    test(
-      'unauthenticated status stays on login and redirects every other route',
-      () {
-        for (final location in locations) {
-          expect(
-            authRedirectLocation(AuthStatus.unauthenticated, location),
-            location == '/login' ? null : '/login',
-            reason: 'location: $location',
-          );
-        }
-      },
-    );
+    test('unauthenticated status allows login and registration', () {
+      for (final location in locations) {
+        expect(
+          authRedirectLocation(AuthStatus.unauthenticated, location),
+          location == '/login' || location == '/register' ? null : '/login',
+          reason: 'location: $location',
+        );
+      }
+    });
 
     test('authenticated status redirects login and splash to home', () {
       for (final location in locations) {

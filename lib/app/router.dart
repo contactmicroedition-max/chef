@@ -88,7 +88,9 @@ String? authRedirectLocation(AuthStatus authStatus, String matchedLocation) {
     return matchedLocation == '/splash' ? null : '/splash';
   }
   if (authStatus == AuthStatus.unauthenticated) {
-    return matchedLocation == '/login' ? null : '/login';
+    return matchedLocation == '/login' || matchedLocation == '/register'
+        ? null
+        : '/login';
   }
   if (matchedLocation == '/login' || matchedLocation == '/splash') {
     return '/home';
